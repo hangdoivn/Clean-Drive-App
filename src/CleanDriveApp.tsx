@@ -20,6 +20,7 @@ import { CategoryNav } from './components/CategoryNav';
 import { CleanupPanel } from './components/CleanupPanel';
 import { CleanupRulesBar } from './components/CleanupRulesBar';
 import { ProjectStoragePanel } from './components/ProjectStoragePanel';
+import { CoreIntegrationPanel } from './components/CoreIntegrationPanel';
 import { AccessPanel } from './components/AccessPanel';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
@@ -33,6 +34,7 @@ import {
   totalBytes,
 } from './lib/classify';
 import { buildProjectStorage, projectAppProperties } from './lib/projects';
+import { applyCoreProjectOverlay, loadCoreContext } from './lib/hangdoi-core';
 import { demoSnapshot } from './lib/demo-data';
 import { loadLastDriveIndex, saveDriveIndex } from './lib/drive-index';
 import { formatBytes } from './lib/format';
@@ -47,6 +49,8 @@ import {
 import type {
   AccessAuditResult,
   CategoryId,
+  CoreProject,
+  CoreSession,
   CleanupRules,
   DriveFile,
   DrivePermission,
@@ -111,6 +115,10 @@ export function CleanDriveApp() {
   const [isAuditingAccess, setIsAuditingAccess] = useState(false);
   const [auditProgress, setAuditProgress] = useState({ done: 0, total: 0 });
   const [isRemovingPermission, setIsRemovingPermission] = useState(false);
+  const [coreSession, setCoreSession] = useState<CoreSession>();
+  const [coreProjects, setCoreProjects] = useState<CoreProject[]>([]);
+  const [coreState, setCoreState] = useState<'idle' | 'loading' | 'connected' | 'error'>('idle');
+  const [coreError, setCoreError] = useState<string>();
 
 
   useEffect(() => {
@@ -129,7 +137,32 @@ export function CleanDriveApp() {
     };
   }, []);
 
-  const classifiedFiles = useMemo(() => classifyFiles(snapshot.files, rules), [snapshot.files, rules]);
+  useEffect(() => {
+    let cancelled = false;
+    setCoreState('loading');
+    loadCoreContext()
+      .then(({ session, projects }) => {
+        if (cancelled) return;
+        setCoreSession(session);
+        setCoreProjects(projects);
+        setCoreState('connected');
+        setCoreError(undefined);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setCoreState('error');
+        setCoreError(error instanceof Error ? error.message : 'Không kết nối được Project Core.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const effectiveFiles = useMemo(
+    () => applyCoreProjectOverlay(snapshot.files, coreProjects),
+    [snapshot.files, coreProjects],
+  );
+  const classifiedFiles = useMemo(() => classifyFiles(effectiveFiles, rules), [effectiveFiles, rules]);
   const visibleFiles = useMemo(() => {
     const base = filterByCategory(classifiedFiles, activeCategory);
     const scoped = projectFilterId ? base.filter((file) => file.project?.folderId === projectFilterId) : base;
@@ -141,7 +174,7 @@ export function CleanDriveApp() {
   const suggestionFiles = classifiedFiles.filter(isCleanupCandidate);
   const potentialSavings = totalBytes(suggestionFiles);
   const mediaFootprint = useMemo(() => storageByKind(classifiedFiles).slice(0, 4), [classifiedFiles]);
-  const projectStorage = useMemo(() => buildProjectStorage(snapshot.files), [snapshot.files]);
+  const projectStorage = useMemo(() => buildProjectStorage(effectiveFiles), [effectiveFiles]);
   const projectCleanup = useMemo(() => {
     const grouped = new Map<string, { count: number; bytes: bigint }>();
     for (const file of classifiedFiles) {
@@ -316,6 +349,21 @@ export function CleanDriveApp() {
 
 
 
+
+
+  const handleRefreshCore = async () => {
+    setCoreState('loading');
+    setCoreError(undefined);
+    try {
+      const context = await loadCoreContext();
+      setCoreSession(context.session);
+      setCoreProjects(context.projects);
+      setCoreState('connected');
+    } catch (error) {
+      setCoreState('error');
+      setCoreError(error instanceof Error ? error.message : 'Không kết nối được Project Core.');
+    }
+  };
 
   const handleAuditAccess = async () => {
     const tagged = projectStorage.projects.filter((entry) => entry.tagged);
@@ -580,15 +628,27 @@ export function CleanDriveApp() {
             </footer>
           </>
         ) : mode === 'projects' ? (
-          <ProjectStoragePanel
-            entries={projectStorage.projects}
-            unclassifiedBytes={projectStorage.unclassifiedBytes}
-            unclassifiedCount={projectStorage.unclassifiedCount}
-            cleanupByProject={projectCleanup}
-            isSaving={isSavingProject}
-            onSave={handleSaveProject}
-            onReview={handleReviewProject}
-          />
+          <>
+            <CoreIntegrationPanel
+              state={coreState}
+              email={coreSession?.user.email}
+              projectCount={coreProjects.length}
+              linkedCount={projectStorage.projects.filter((entry) => Boolean(entry.coreProjectId)).length}
+              error={coreError}
+              onRefresh={handleRefreshCore}
+            />
+            <ProjectStoragePanel
+              entries={projectStorage.projects}
+              unclassifiedBytes={projectStorage.unclassifiedBytes}
+              unclassifiedCount={projectStorage.unclassifiedCount}
+              cleanupByProject={projectCleanup}
+              coreProjects={coreProjects}
+              coreConnected={coreState === 'connected'}
+              isSaving={isSavingProject}
+              onSave={handleSaveProject}
+              onReview={handleReviewProject}
+            />
+          </>
         ) : (
           <AccessPanel
             projects={projectStorage.projects}

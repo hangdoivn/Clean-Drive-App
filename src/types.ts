@@ -61,6 +61,7 @@ export type ProjectContext = {
   name: string;
   client?: string;
   status: ProjectStatus;
+  coreProjectId?: string;
 };
 
 export type ClassifiedFile = DriveFile & {
@@ -83,12 +84,14 @@ export type ProjectStorageEntry = {
   name: string;
   client?: string;
   status?: ProjectStatus;
+  coreProjectId?: string;
 };
 
 export type ProjectMetadataInput = {
   name: string;
   client: string;
   status: ProjectStatus;
+  coreProjectId?: string;
 };
 
 
@@ -107,4 +110,29 @@ export type AccessAuditResult = {
   folderId: string;
   permissions: DrivePermission[];
   error?: string;
+};
+
+
+export type CoreProject = {
+  id: string;
+  projectCode?: string | null;
+  name: string;
+  currentStatus?: string | null;
+  status?: string | null;
+  deliveryStatus?: string | null;
+  client?: { id: string; companyName: string } | null;
+};
+
+export type CoreSessionUser = {
+  id: string;
+  email: string;
+  status: string;
+  permissions?: string[];
+  employee?: { id: string; fullName: string } | null;
+};
+
+export type CoreSession = {
+  accessToken: string;
+  refreshToken: string;
+  user: CoreSessionUser;
 };

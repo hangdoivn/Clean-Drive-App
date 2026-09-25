@@ -4,6 +4,7 @@ export const PROJECT_PROP = 'hangdoiProject';
 export const PROJECT_NAME_PROP = 'hangdoiProjectName';
 export const PROJECT_CLIENT_PROP = 'hangdoiClient';
 export const PROJECT_STATUS_PROP = 'hangdoiStatus';
+export const PROJECT_ID_PROP = 'hangdoiProjectId';
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
@@ -26,6 +27,7 @@ export function projectMetadataFromFolder(file: DriveFile) {
     name: file.appProperties?.[PROJECT_NAME_PROP] || file.name,
     client: file.appProperties?.[PROJECT_CLIENT_PROP],
     status: readProjectStatus(file),
+    coreProjectId: file.appProperties?.[PROJECT_ID_PROP],
   };
 }
 
@@ -88,6 +90,7 @@ export function buildProjectStorage(files: DriveFile[]): {
       name: meta.name,
       client: meta.client,
       status: meta.status,
+      coreProjectId: meta.coreProjectId,
     });
   }
 
@@ -111,6 +114,7 @@ export function findProjectContext(file: DriveFile, byId: Map<string, DriveFile>
         name: current.appProperties?.[PROJECT_NAME_PROP] || current.name,
         client: current.appProperties?.[PROJECT_CLIENT_PROP],
         status: readProjectStatus(current) ?? 'active',
+        coreProjectId: current.appProperties?.[PROJECT_ID_PROP],
       };
     }
     const parentId: string | undefined = current.parents?.[0];
@@ -121,10 +125,12 @@ export function findProjectContext(file: DriveFile, byId: Map<string, DriveFile>
 }
 
 export function projectAppProperties(input: ProjectMetadataInput): Record<string, string> {
-  return {
+  const properties: Record<string, string> = {
     [PROJECT_PROP]: '1',
     [PROJECT_NAME_PROP]: input.name.trim(),
     [PROJECT_CLIENT_PROP]: input.client.trim(),
     [PROJECT_STATUS_PROP]: input.status,
   };
+  if (input.coreProjectId?.trim()) properties[PROJECT_ID_PROP] = input.coreProjectId.trim();
+  return properties;
 }

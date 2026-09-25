@@ -1,13 +1,16 @@
 import { Archive, Check, FolderKanban, PackageCheck, Pencil, Save, Search, ShieldCheck, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatBytes } from '../lib/format';
-import type { ProjectMetadataInput, ProjectStatus, ProjectStorageEntry } from '../types';
+import type { CoreProject, ProjectMetadataInput, ProjectStatus, ProjectStorageEntry } from '../types';
+import { mapCoreProjectStatus } from '../lib/hangdoi-core';
 
 type ProjectStoragePanelProps = {
   entries: ProjectStorageEntry[];
   unclassifiedBytes: bigint;
   unclassifiedCount: number;
   cleanupByProject: Map<string, { count: number; bytes: bigint }>;
+  coreProjects?: CoreProject[];
+  coreConnected?: boolean;
   isSaving?: boolean;
   onSave: (folderId: string, metadata: ProjectMetadataInput) => Promise<void>;
   onReview: (folderId: string) => void;
@@ -30,13 +33,15 @@ export function ProjectStoragePanel({
   unclassifiedBytes,
   unclassifiedCount,
   cleanupByProject,
+  coreProjects = [],
+  coreConnected,
   isSaving,
   onSave,
   onReview,
 }: ProjectStoragePanelProps) {
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string>();
-  const [draft, setDraft] = useState<ProjectMetadataInput>({ name: '', client: '', status: 'active' });
+  const [draft, setDraft] = useState<ProjectMetadataInput>({ name: '', client: '', status: 'active', coreProjectId: undefined });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('vi');
@@ -54,6 +59,7 @@ export function ProjectStoragePanel({
       name: entry.name || entry.folder.name,
       client: entry.client || '',
       status: entry.status || 'active',
+      coreProjectId: entry.coreProjectId,
     });
   };
 
@@ -110,7 +116,7 @@ export function ProjectStoragePanel({
                   <span className="project-row__icon"><StatusIcon size={19} /></span>
                   <div className="project-row__title">
                     <strong>{entry.name}</strong>
-                    <span>{entry.client || entry.folder.name}</span>
+                    <span>{entry.client || entry.folder.name}{entry.coreProjectId ? ' · Project Core' : ''}</span>
                   </div>
                 </div>
 
@@ -140,6 +146,35 @@ export function ProjectStoragePanel({
 
                 {editing ? (
                   <div className="project-editor">
+                    {coreConnected ? (
+                      <label>
+                        <span>Project Core</span>
+                        <select
+                          value={draft.coreProjectId || ''}
+                          onChange={(event) => {
+                            const id = event.target.value || undefined;
+                            const project = coreProjects.find((item) => item.id === id);
+                            if (!project) {
+                              setDraft({ ...draft, coreProjectId: undefined });
+                              return;
+                            }
+                            setDraft({
+                              coreProjectId: project.id,
+                              name: project.name,
+                              client: project.client?.companyName || '',
+                              status: mapCoreProjectStatus(project.currentStatus || project.status),
+                            });
+                          }}
+                        >
+                          <option value="">Không liên kết Project Core</option>
+                          {coreProjects.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {project.projectCode ? `${project.projectCode} · ` : ''}{project.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                     <label>
                       <span>Tên project</span>
                       <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
