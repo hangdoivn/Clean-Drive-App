@@ -32,11 +32,27 @@ export type DriveSnapshot = {
 };
 
 export type CategoryId = 'overview' | 'large' | 'duplicate' | 'old' | 'empty';
-
 export type DuplicateRole = 'keep' | 'remove';
+
+export type FileKind =
+  | 'video'
+  | 'photo-raw'
+  | 'image'
+  | 'design'
+  | 'editing-project'
+  | 'archive'
+  | 'document'
+  | 'folder'
+  | 'other';
+
+export type CleanupRules = {
+  largeFileBytes: number;
+  oldFileDays: number;
+};
 
 export type ClassifiedFile = DriveFile & {
   bytes: bigint;
+  kind: FileKind;
   categories: Exclude<CategoryId, 'overview'>[];
   protectedReason?: string;
   duplicateCount?: number;

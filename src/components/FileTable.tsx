@@ -1,25 +1,41 @@
 import { ExternalLink, LockKeyhole, Search, ShieldCheck } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatBytes, formatDate } from '../lib/format';
-import type { ClassifiedFile } from '../types';
+import type { ClassifiedFile, FileKind } from '../types';
 import { FileIcon } from './FileIcon';
 
 type FileTableProps = {
   files: ClassifiedFile[];
   selectedIds: Set<string>;
   cleanupBlocked?: boolean;
+  oldFileDays: number;
   onToggle: (file: ClassifiedFile) => void;
   onToggleAll: (files: ClassifiedFile[]) => void;
 };
 
-function reasonLabel(file: ClassifiedFile): string {
+const kindLabels: Record<FileKind, string> = {
+  video: 'Video',
+  'photo-raw': 'Photo RAW',
+  image: 'Hình ảnh',
+  design: 'Design',
+  'editing-project': 'Project edit',
+  archive: 'Archive',
+  document: 'Tài liệu',
+  folder: 'Folder',
+  other: 'Khác',
+};
+
+function reasonLabel(file: ClassifiedFile, oldFileDays: number): string {
   if (file.categories.includes('duplicate')) {
     return file.duplicateRole === 'keep'
       ? `Bản giữ lại · ${file.duplicateCount} bản giống nhau`
       : `Có thể dọn · ${file.duplicateCount} bản giống nhau`;
   }
   if (file.categories.includes('large')) return 'File dung lượng lớn';
-  if (file.categories.includes('old')) return 'Không mở/chỉnh sửa hơn 2 năm';
+  if (file.categories.includes('old')) {
+    const years = oldFileDays / 365;
+    return years >= 1 ? `Không hoạt động hơn ${Number.isInteger(years) ? years : years.toFixed(1)} năm` : 'Không hoạt động hơn 6 tháng';
+  }
   if (file.categories.includes('empty')) return 'Không có file bên trong';
   return 'Đề xuất xem lại';
 }
@@ -31,7 +47,7 @@ function disabledReason(file: ClassifiedFile, cleanupBlocked?: boolean): string 
   return undefined;
 }
 
-export function FileTable({ files, selectedIds, cleanupBlocked, onToggle, onToggleAll }: FileTableProps) {
+export function FileTable({ files, selectedIds, cleanupBlocked, oldFileDays, onToggle, onToggleAll }: FileTableProps) {
   const [query, setQuery] = useState('');
   const visibleFiles = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('vi');
@@ -100,11 +116,14 @@ export function FileTable({ files, selectedIds, cleanupBlocked, onToggle, onTogg
                 <FileIcon mimeType={file.mimeType} />
                 <span>
                   <strong>{file.name}</strong>
-                  {file.webViewLink ? (
-                    <a href={file.webViewLink} target="_blank" rel="noreferrer">
-                      Mở trên Drive <ExternalLink size={12} />
-                    </a>
-                  ) : <small>{file.mimeType.split('/').pop()?.replace('vnd.google-apps.', '')}</small>}
+                  <span className="file-meta-line">
+                    <small className="file-kind-chip">{kindLabels[file.kind]}</small>
+                    {file.webViewLink ? (
+                      <a href={file.webViewLink} target="_blank" rel="noreferrer">
+                        Mở Drive <ExternalLink size={11} />
+                      </a>
+                    ) : null}
+                  </span>
                 </span>
               </div>
               <div role="cell" className="reason-cell">
@@ -112,7 +131,7 @@ export function FileTable({ files, selectedIds, cleanupBlocked, onToggle, onTogg
                   <span className="protection-label" title={disabled}>
                     <LockKeyhole size={14} /> {file.duplicateRole === 'keep' ? 'Giữ lại' : 'Được bảo vệ'}
                   </span>
-                ) : reasonLabel(file)}
+                ) : reasonLabel(file, oldFileDays)}
               </div>
               <div role="cell" className="date-cell">{formatDate(file.viewedByMeTime || file.modifiedTime)}</div>
               <div role="cell" className="size-cell align-right">{formatBytes(file.bytes)}</div>

@@ -15,14 +15,50 @@ import { useMemo, useState } from 'react';
 import { BrandMark } from './components/BrandMark';
 import { CategoryNav } from './components/CategoryNav';
 import { CleanupPanel } from './components/CleanupPanel';
+import { CleanupRulesBar } from './components/CleanupRulesBar';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
 import { StatCard } from './components/StatCard';
-import { classifyFiles, filterByCategory, isCleanupCandidate, totalBytes } from './lib/classify';
+import {
+  classifyFiles,
+  DEFAULT_CLEANUP_RULES,
+  filterByCategory,
+  isCleanupCandidate,
+  storageByKind,
+  totalBytes,
+} from './lib/classify';
 import { demoSnapshot } from './lib/demo-data';
 import { formatBytes } from './lib/format';
 import { moveFilesToTrash, restoreFilesFromTrash, scanGoogleDrive } from './lib/google-drive';
-import type { CategoryId, DriveFile, DriveSnapshot } from './types';
+import type { CategoryId, CleanupRules, DriveFile, DriveSnapshot, FileKind } from './types';
+
+const RULES_STORAGE_KEY = 'hangdoi-clean-drive-rules-v1';
+
+const kindLabels: Record<FileKind, string> = {
+  video: 'Video',
+  'photo-raw': 'Photo RAW',
+  image: 'Hình ảnh',
+  design: 'Design',
+  'editing-project': 'Project edit',
+  archive: 'Archive',
+  document: 'Tài liệu',
+  folder: 'Folder',
+  other: 'Khác',
+};
+
+function loadRules(): CleanupRules {
+  try {
+    const raw = window.localStorage.getItem(RULES_STORAGE_KEY);
+    if (!raw) return DEFAULT_CLEANUP_RULES;
+    const parsed = JSON.parse(raw) as Partial<CleanupRules>;
+    return {
+      largeFileBytes: Number(parsed.largeFileBytes) || DEFAULT_CLEANUP_RULES.largeFileBytes,
+      oldFileDays: Number(parsed.oldFileDays) || DEFAULT_CLEANUP_RULES.oldFileDays,
+    };
+  } catch {
+    return DEFAULT_CLEANUP_RULES;
+  }
+}
 
 function toBytes(value?: string): bigint {
   return BigInt(value || '0');
@@ -30,6 +66,7 @@ function toBytes(value?: string): bigint {
 
 export function CleanDriveApp() {
   const [snapshot, setSnapshot] = useState<DriveSnapshot>(demoSnapshot);
+  const [rules, setRules] = useState<CleanupRules>(loadRules);
   const [isDemo, setIsDemo] = useState(true);
   const [activeCategory, setActiveCategory] = useState<CategoryId>('overview');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -43,7 +80,7 @@ export function CleanDriveApp() {
   const [lastTrashBatch, setLastTrashBatch] = useState<DriveFile[]>([]);
   const [isRestoring, setIsRestoring] = useState(false);
 
-  const classifiedFiles = useMemo(() => classifyFiles(snapshot.files), [snapshot.files]);
+  const classifiedFiles = useMemo(() => classifyFiles(snapshot.files, rules), [snapshot.files, rules]);
   const visibleFiles = useMemo(
     () => filterByCategory(classifiedFiles, activeCategory).sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0)),
     [classifiedFiles, activeCategory],
@@ -53,6 +90,7 @@ export function CleanDriveApp() {
   const selectedFiles = classifiedFiles.filter((file) => selectedIds.has(file.id) && isCleanupCandidate(file));
   const suggestionFiles = classifiedFiles.filter(isCleanupCandidate);
   const potentialSavings = totalBytes(suggestionFiles);
+  const mediaFootprint = useMemo(() => storageByKind(classifiedFiles).slice(0, 4), [classifiedFiles]);
 
   const limit = snapshot.quota.limit ? toBytes(snapshot.quota.limit) : undefined;
   const usage = toBytes(snapshot.quota.usage || snapshot.quota.usageInDrive);
@@ -64,6 +102,12 @@ export function CleanDriveApp() {
   const percentOfLimit = (bytes: bigint) => limit && limit > 0n
     ? Math.max(0, Math.min(100, Number((bytes * 100n) / limit)))
     : 0;
+
+  const updateRules = (nextRules: CleanupRules) => {
+    setRules(nextRules);
+    setSelectedIds(new Set());
+    window.localStorage.setItem(RULES_STORAGE_KEY, JSON.stringify(nextRules));
+  };
 
   const handleScan = async () => {
     setScanState('scanning');
@@ -279,6 +323,24 @@ export function CleanDriveApp() {
           />
         </section>
 
+        <section className="media-footprint" aria-label="Phân bổ asset">
+          <div className="media-footprint__heading">
+            <strong>Asset footprint</strong>
+            <span>Nhóm file đang chiếm nhiều dung lượng nhất</span>
+          </div>
+          <div className="media-footprint__items">
+            {mediaFootprint.map((item) => (
+              <div className="media-footprint__item" key={item.kind}>
+                <span>{kindLabels[item.kind]}</span>
+                <strong>{formatBytes(item.bytes)}</strong>
+                <small>{item.count.toLocaleString('vi-VN')} file</small>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <CleanupRulesBar rules={rules} onChange={updateRules} />
+
         <section className="work-grid">
           <aside className="left-rail">
             <div className="rail-label">Nhóm đề xuất</div>
@@ -296,6 +358,7 @@ export function CleanDriveApp() {
             files={visibleFiles}
             selectedIds={selectedIds}
             cleanupBlocked={cleanupBlocked}
+            oldFileDays={rules.oldFileDays}
             onToggle={handleToggle}
             onToggleAll={handleToggleAll}
           />

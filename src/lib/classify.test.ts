@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { classifyFiles, filterByCategory, isCleanupCandidate, totalBytes } from './classify';
+import {
+  classifyFileKind,
+  classifyFiles,
+  filterByCategory,
+  isCleanupCandidate,
+  storageByKind,
+  totalBytes,
+} from './classify';
 import type { DriveFile } from '../types';
 
 const base: DriveFile = {
@@ -63,6 +70,31 @@ describe('classifyFiles', () => {
     const recentView = new Date().toISOString();
     const [file] = classifyFiles([{ ...base, viewedByMeTime: recentView }]);
     expect(file.categories).not.toContain('old');
+  });
+
+  it('respects custom cleanup thresholds', () => {
+    const [file] = classifyFiles([{ ...base, md5Checksum: undefined }], {
+      largeFileBytes: 1_000_000_000,
+      oldFileDays: 3650,
+    });
+    expect(file.categories).not.toContain('large');
+    expect(file.categories).not.toContain('old');
+  });
+
+  it('classifies production file types by extension', () => {
+    expect(classifyFileKind({ ...base, name: 'A001.C001.braw', mimeType: 'application/octet-stream' })).toBe('video');
+    expect(classifyFileKind({ ...base, name: 'DSC0001.ARW', mimeType: 'application/octet-stream' })).toBe('photo-raw');
+    expect(classifyFileKind({ ...base, name: 'campaign.psd', mimeType: 'application/octet-stream' })).toBe('design');
+    expect(classifyFileKind({ ...base, name: 'edit.prproj', mimeType: 'application/octet-stream' })).toBe('editing-project');
+  });
+
+  it('summarizes storage by production file kind', () => {
+    const files = classifyFiles([
+      { ...base, md5Checksum: undefined, name: 'clip.mov', mimeType: 'video/quicktime' },
+      { ...base, id: 'b', md5Checksum: undefined, name: 'shot.arw', mimeType: 'application/octet-stream' },
+    ]);
+    const summary = storageByKind(files);
+    expect(summary.map((item) => item.kind)).toEqual(expect.arrayContaining(['video', 'photo-raw']));
   });
 
   it('sums int64 byte values using bigint', () => {

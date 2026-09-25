@@ -1,8 +1,43 @@
-import type { CategoryId, ClassifiedFile, DriveFile } from '../types';
+import type { CategoryId, ClassifiedFile, CleanupRules, DriveFile, FileKind } from '../types';
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
-const LARGE_FILE_BYTES = 500_000_000n;
-const OLD_FILE_DAYS = 365 * 2;
+
+export const DEFAULT_CLEANUP_RULES: CleanupRules = {
+  largeFileBytes: 500_000_000,
+  oldFileDays: 365 * 2,
+};
+
+const RAW_EXTENSIONS = new Set(['cr2','cr3','nef','arw','orf','rw2','raf','dng','pef','srw']);
+const DESIGN_EXTENSIONS = new Set(['psd','psb','ai','indd','afdesign','afphoto','fig']);
+const EDITING_PROJECT_EXTENSIONS = new Set(['prproj','aep','drp','fcpxml','veg']);
+const VIDEO_EXTENSIONS = new Set(['mov','mp4','mxf','m4v','avi','mkv','braw','r3d','crm']);
+const ARCHIVE_EXTENSIONS = new Set(['zip','rar','7z','tar','gz']);
+
+function extensionOf(name: string): string {
+  const parts = name.toLocaleLowerCase('en').split('.');
+  return parts.length > 1 ? parts.at(-1) ?? '' : '';
+}
+
+export function classifyFileKind(file: DriveFile): FileKind {
+  if (file.mimeType === FOLDER_MIME) return 'folder';
+  const ext = extensionOf(file.name);
+
+  if (RAW_EXTENSIONS.has(ext)) return 'photo-raw';
+  if (DESIGN_EXTENSIONS.has(ext)) return 'design';
+  if (EDITING_PROJECT_EXTENSIONS.has(ext)) return 'editing-project';
+  if (VIDEO_EXTENSIONS.has(ext) || file.mimeType.startsWith('video/')) return 'video';
+  if (ARCHIVE_EXTENSIONS.has(ext) || /zip|rar|tar|gzip|compressed/.test(file.mimeType)) return 'archive';
+  if (file.mimeType.startsWith('image/')) return 'image';
+  if (
+    file.mimeType.startsWith('text/') ||
+    file.mimeType.includes('pdf') ||
+    file.mimeType.includes('document') ||
+    file.mimeType.includes('spreadsheet') ||
+    file.mimeType.includes('presentation')
+  ) return 'document';
+
+  return 'other';
+}
 
 function fileBytes(file: DriveFile): bigint {
   return BigInt(file.quotaBytesUsed || file.size || '0');
@@ -42,7 +77,7 @@ function chooseDuplicateKeeper(bucket: DriveFile[]): DriveFile {
   })[0];
 }
 
-export function classifyFiles(files: DriveFile[]): ClassifiedFile[] {
+export function classifyFiles(files: DriveFile[], rules: CleanupRules = DEFAULT_CLEANUP_RULES): ClassifiedFile[] {
   const childCountByFolder = new Map<string, number>();
   const duplicateBuckets = new Map<string, DriveFile[]>();
 
@@ -71,21 +106,24 @@ export function classifyFiles(files: DriveFile[]): ClassifiedFile[] {
     }
   }
 
-  const oldThreshold = Date.now() - OLD_FILE_DAYS * 24 * 60 * 60 * 1000;
+  const oldThreshold = Date.now() - rules.oldFileDays * 24 * 60 * 60 * 1000;
+  const largeThreshold = BigInt(rules.largeFileBytes);
 
   return files.map((file) => {
     const categories: ClassifiedFile['categories'] = [];
     const bytes = fileBytes(file);
     const duplicate = duplicateMeta.get(file.id);
+    const lastActivity = lastActivityAt(file);
 
-    if (bytes >= LARGE_FILE_BYTES && file.mimeType !== FOLDER_MIME) categories.push('large');
+    if (bytes >= largeThreshold && file.mimeType !== FOLDER_MIME) categories.push('large');
     if (duplicate) categories.push('duplicate');
-    if (lastActivityAt(file) > 0 && lastActivityAt(file) < oldThreshold) categories.push('old');
+    if (lastActivity > 0 && lastActivity < oldThreshold) categories.push('old');
     if (file.mimeType === FOLDER_MIME && !childCountByFolder.has(file.id)) categories.push('empty');
 
     return {
       ...file,
       bytes,
+      kind: classifyFileKind(file),
       categories,
       protectedReason: getProtectedReason(file),
       duplicateCount: duplicate?.count,
@@ -108,4 +146,18 @@ export function filterByCategory(files: ClassifiedFile[], category: CategoryId):
 
 export function totalBytes(files: ClassifiedFile[]): bigint {
   return files.reduce((sum, file) => sum + file.bytes, 0n);
+}
+
+export function storageByKind(files: ClassifiedFile[]): { kind: FileKind; bytes: bigint; count: number }[] {
+  const grouped = new Map<FileKind, { bytes: bigint; count: number }>();
+  for (const file of files) {
+    if (file.kind === 'folder') continue;
+    const current = grouped.get(file.kind) ?? { bytes: 0n, count: 0 };
+    current.bytes += file.bytes;
+    current.count += 1;
+    grouped.set(file.kind, current);
+  }
+  return [...grouped.entries()]
+    .map(([kind, value]) => ({ kind, ...value }))
+    .sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0));
 }
