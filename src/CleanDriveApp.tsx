@@ -24,6 +24,7 @@ import { ProjectStoragePanel } from './components/ProjectStoragePanel';
 import { CoreIntegrationPanel } from './components/CoreIntegrationPanel';
 import { AccessPanel } from './components/AccessPanel';
 import { ActivityPanel } from './components/ActivityPanel';
+import { DriveSyncState } from './components/DriveSyncState';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
 import { StatCard } from './components/StatCard';
@@ -103,6 +104,7 @@ export function CleanDriveApp() {
   const [rules, setRules] = useState<CleanupRules>(loadRules);
   const [isDemo, setIsDemo] = useState(true);
   const [isCached, setIsCached] = useState(false);
+  const [bootState, setBootState] = useState<'restoring' | 'ready'>('restoring');
   const [syncSummary, setSyncSummary] = useState<string>();
   const [activeCategory, setActiveCategory] = useState<CategoryId>('overview');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -130,14 +132,19 @@ export function CleanDriveApp() {
     let cancelled = false;
     loadLastDriveIndex()
       .then((cached) => {
-        if (cancelled || !cached?.email || cached.files.length === 0) return;
-        setSnapshot(cached);
-        setIsDemo(false);
-        setIsCached(true);
-        setSyncSummary(cached.lastSyncedAt ? `Dữ liệu từ ${new Date(cached.lastSyncedAt).toLocaleString('vi-VN')}` : 'Dữ liệu từ lần đồng bộ trước');
-        setMessage('Đã khôi phục dữ liệu từ lần đồng bộ trước. Kết nối lại Drive để xác minh thay đổi mới trước khi dọn.');
+        if (cancelled) return;
+        if (cached?.email && cached.files.length > 0) {
+          setSnapshot(cached);
+          setIsDemo(false);
+          setIsCached(true);
+          setSyncSummary(cached.lastSyncedAt ? `Dữ liệu từ ${new Date(cached.lastSyncedAt).toLocaleString('vi-VN')}` : 'Dữ liệu từ lần đồng bộ trước');
+          setMessage('Đã khôi phục dữ liệu từ lần đồng bộ trước. Kết nối lại Drive để xác minh thay đổi mới trước khi dọn.');
+        }
+        setBootState('ready');
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setBootState('ready');
+      });
     return () => {
       cancelled = true;
     };
@@ -175,7 +182,9 @@ export function CleanDriveApp() {
     return scoped.sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0));
   }, [classifiedFiles, activeCategory, projectFilterId]);
 
-  const cleanupBlocked = scanState === 'scanning' || (!isDemo && (snapshot.incompleteSearch || isCached));
+  const isBootRestoring = bootState === 'restoring';
+  const isInitialSync = scanState === 'scanning' && isDemo;
+  const cleanupBlocked = isBootRestoring || scanState === 'scanning' || (!isDemo && (snapshot.incompleteSearch || isCached));
   const selectedFiles = classifiedFiles.filter((file) => selectedIds.has(file.id) && isCleanupCandidate(file));
   const suggestionFiles = classifiedFiles.filter(isCleanupCandidate);
   const potentialSavings = totalBytes(suggestionFiles);
@@ -524,33 +533,45 @@ export function CleanDriveApp() {
         <div className="topbar__actions">
           <a className="hub-back-link" href="/">Apps</a>
           <span
-            className={scanState === 'scanning'
-              ? 'data-badge is-syncing'
-              : isDemo
-                ? 'data-badge is-demo'
-                : isCached
-                  ? 'data-badge is-cached'
-                  : 'data-badge is-live'}
+            className={isBootRestoring
+              ? 'data-badge is-restoring'
+              : scanState === 'scanning'
+                ? 'data-badge is-syncing'
+                : scanState === 'error'
+                  ? 'data-badge is-error'
+                  : isDemo
+                    ? 'data-badge is-demo'
+                    : isCached
+                      ? 'data-badge is-cached'
+                      : 'data-badge is-live'}
             title={syncSummary}
           >
             <span />
-            {scanState === 'scanning'
-              ? 'Đang đồng bộ Drive'
-              : isDemo
-                ? 'Dữ liệu mô phỏng'
-                : isCached
-                  ? 'Cần kết nối lại'
-                  : 'Drive đã đồng bộ'}
+            {isBootRestoring
+              ? 'Đang khôi phục'
+              : scanState === 'scanning'
+                ? 'Đang đồng bộ Drive'
+                : scanState === 'error'
+                  ? 'Không thể đồng bộ'
+                  : isDemo
+                    ? 'Dữ liệu mô phỏng'
+                    : isCached
+                      ? 'Cần kết nối lại'
+                      : 'Drive đã đồng bộ'}
           </span>
-          <button className="connect-button" type="button" onClick={handleScan} disabled={scanState === 'scanning'}>
+          <button className="connect-button" type="button" onClick={handleScan} disabled={isBootRestoring || scanState === 'scanning'}>
             {scanState === 'scanning' ? <RefreshCw className="spin" size={17} /> : <Cloud size={17} />}
-            {scanState === 'scanning'
-              ? `Đang đồng bộ ${scanCount.toLocaleString('vi-VN')}`
-              : isDemo
-                ? 'Kết nối Google Drive'
-                : isCached
-                  ? 'Kết nối lại Drive'
-                  : 'Đồng bộ thay đổi'}
+            {isBootRestoring
+              ? 'Đang khôi phục'
+              : scanState === 'scanning'
+                ? `Đã đọc ${scanCount.toLocaleString('vi-VN')} file`
+                : scanState === 'error'
+                  ? 'Thử lại kết nối'
+                  : isDemo
+                    ? 'Kết nối Google Drive'
+                    : isCached
+                      ? 'Kết nối lại Drive'
+                      : 'Đồng bộ thay đổi'}
           </button>
           <div className="avatar" title={snapshot.email}>{snapshot.displayName?.charAt(0) || 'B'}</div>
         </div>
@@ -594,7 +615,9 @@ export function CleanDriveApp() {
           </div>
         ) : null}
 
-        {mode === 'cleanup' ? (
+        {isBootRestoring || isInitialSync ? (
+          <DriveSyncState mode={isBootRestoring ? 'restoring' : 'scanning'} count={scanCount} />
+        ) : mode === 'cleanup' ? (
           <>
             <section className="dashboard-grid" aria-label="Tổng quan dung lượng">
               <div className="storage-card">
