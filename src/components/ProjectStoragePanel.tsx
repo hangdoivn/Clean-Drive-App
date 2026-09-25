@@ -55,8 +55,12 @@ export function ProjectStoragePanel({
 
   const submit = async (folderId: string) => {
     if (!draft.name.trim()) return;
-    await onSave(folderId, draft);
-    setEditingId(undefined);
+    try {
+      await onSave(folderId, draft);
+      setEditingId(undefined);
+    } catch {
+      // Parent surfaces the Drive API error; keep the editor open for retry.
+    }
   };
 
   return (
