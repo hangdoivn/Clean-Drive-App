@@ -650,3 +650,5 @@ a.hub-card:hover {
   .permission-row { grid-template-columns:65px minmax(0,1fr) auto; }
   .permission-remove { grid-column:3; grid-row:1 / span 2; }
 }
+
+.data-badge.is-cached > span { background:#64748b; box-shadow:0 0 0 4px rgba(100,116,139,.11); }

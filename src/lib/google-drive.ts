@@ -117,20 +117,43 @@ async function driveFetch<T>(path: string, token: string, init?: RequestInit): P
   return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 }
 
-export async function scanGoogleDrive(onProgress: (filesFound: number) => void): Promise<DriveSnapshot> {
-  const token = await requestAccessToken(READ_SCOPE);
+const FILE_FIELDS = [
+  'id', 'name', 'mimeType', 'size', 'quotaBytesUsed', 'md5Checksum',
+  'createdTime', 'modifiedTime', 'viewedByMeTime', 'parents', 'ownedByMe',
+  'starred', 'trashed', 'capabilities/canTrash', 'webViewLink', 'appProperties',
+  'owners(displayName,emailAddress)', 'shared',
+].join(',');
+
+type DriveAbout = {
+  storageQuota?: StorageQuota;
+  user?: { displayName?: string; emailAddress?: string };
+};
+
+export type DriveSyncResult = {
+  snapshot: DriveSnapshot;
+  mode: 'full' | 'incremental';
+  changesApplied: number;
+};
+
+async function getAbout(token: string): Promise<DriveAbout> {
   const aboutFields = 'storageQuota(limit,usage,usageInDrive,usageInDriveTrash),user(displayName,emailAddress)';
-  const fileFields = [
-    'id', 'name', 'mimeType', 'size', 'quotaBytesUsed', 'md5Checksum',
-    'createdTime', 'modifiedTime', 'viewedByMeTime', 'parents', 'ownedByMe',
-    'starred', 'trashed', 'capabilities/canTrash', 'webViewLink', 'appProperties', 'owners(displayName,emailAddress)', 'shared',
-  ].join(',');
+  return driveFetch<DriveAbout>(`/about?fields=${encodeURIComponent(aboutFields)}`, token);
+}
 
-  const aboutPromise = driveFetch<{
-    storageQuota?: StorageQuota;
-    user?: { displayName?: string; emailAddress?: string };
-  }>(`/about?fields=${encodeURIComponent(aboutFields)}`, token);
+async function getStartPageToken(token: string): Promise<string> {
+  const response = await driveFetch<{ startPageToken: string }>(
+    '/changes/startPageToken?supportsAllDrives=true',
+    token,
+  );
+  return response.startPageToken;
+}
 
+async function fullScan(
+  token: string,
+  about: DriveAbout,
+  onProgress: (itemsFound: number) => void,
+): Promise<DriveSyncResult> {
+  const startToken = await getStartPageToken(token);
   const files: DriveFile[] = [];
   let pageToken: string | undefined;
   let incompleteSearch = false;
@@ -141,7 +164,9 @@ export async function scanGoogleDrive(onProgress: (filesFound: number) => void):
       spaces: 'drive',
       corpora: 'user',
       pageSize: '1000',
-      fields: `nextPageToken,incompleteSearch,files(${fileFields})`,
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
+      fields: `nextPageToken,incompleteSearch,files(${FILE_FIELDS})`,
     });
     if (pageToken) params.set('pageToken', pageToken);
 
@@ -157,14 +182,103 @@ export async function scanGoogleDrive(onProgress: (filesFound: number) => void):
     onProgress(files.length);
   } while (pageToken);
 
-  const about = await aboutPromise;
   return {
-    files,
-    quota: about.storageQuota ?? {},
-    displayName: about.user?.displayName,
-    email: about.user?.emailAddress,
-    incompleteSearch,
+    mode: 'full',
+    changesApplied: files.length,
+    snapshot: {
+      files,
+      quota: about.storageQuota ?? {},
+      displayName: about.user?.displayName,
+      email: about.user?.emailAddress,
+      incompleteSearch,
+      changePageToken: startToken,
+      lastSyncedAt: new Date().toISOString(),
+    },
   };
+}
+
+async function incrementalSync(
+  token: string,
+  about: DriveAbout,
+  cached: DriveSnapshot,
+  onProgress: (itemsFound: number) => void,
+): Promise<DriveSyncResult> {
+  const filesById = new Map(cached.files.map((file) => [file.id, file]));
+  let pageToken = cached.changePageToken!;
+  let newStartPageToken = pageToken;
+  let applied = 0;
+
+  do {
+    const params = new URLSearchParams({
+      pageToken,
+      pageSize: '1000',
+      spaces: 'drive',
+      includeRemoved: 'true',
+      restrictToMyDrive: 'false',
+      supportsAllDrives: 'true',
+      includeItemsFromAllDrives: 'true',
+      fields: `nextPageToken,newStartPageToken,changes(fileId,removed,file(${FILE_FIELDS}))`,
+    });
+
+    const page = await driveFetch<{
+      nextPageToken?: string;
+      newStartPageToken?: string;
+      changes?: { fileId?: string; removed?: boolean; file?: DriveFile }[];
+    }>(`/changes?${params.toString()}`, token);
+
+    for (const change of page.changes ?? []) {
+      const id = change.fileId || change.file?.id;
+      if (!id) continue;
+
+      if (change.removed || change.file?.trashed) {
+        filesById.delete(id);
+      } else if (change.file) {
+        filesById.set(id, change.file);
+      }
+      applied += 1;
+    }
+
+    onProgress(applied);
+    if (page.newStartPageToken) newStartPageToken = page.newStartPageToken;
+    pageToken = page.nextPageToken ?? '';
+  } while (pageToken);
+
+  return {
+    mode: 'incremental',
+    changesApplied: applied,
+    snapshot: {
+      files: [...filesById.values()],
+      quota: about.storageQuota ?? {},
+      displayName: about.user?.displayName,
+      email: about.user?.emailAddress,
+      incompleteSearch: false,
+      changePageToken: newStartPageToken,
+      lastSyncedAt: new Date().toISOString(),
+    },
+  };
+}
+
+export async function syncGoogleDrive(
+  cached: DriveSnapshot | undefined,
+  onProgress: (itemsFound: number) => void,
+): Promise<DriveSyncResult> {
+  const token = await requestAccessToken(READ_SCOPE);
+  const about = await getAbout(token);
+  const email = about.user?.emailAddress;
+
+  if (cached?.changePageToken && cached.email && email === cached.email) {
+    try {
+      return await incrementalSync(token, about, cached, onProgress);
+    } catch (error) {
+      if (!(error instanceof DriveApiError) || ![400, 404, 410].includes(error.status)) throw error;
+    }
+  }
+
+  return fullScan(token, about, onProgress);
+}
+
+export async function scanGoogleDrive(onProgress: (itemsFound: number) => void): Promise<DriveSnapshot> {
+  return (await syncGoogleDrive(undefined, onProgress)).snapshot;
 }
 
 async function withBackoff<T>(operation: () => Promise<T>, maxAttempts = 4): Promise<T> {

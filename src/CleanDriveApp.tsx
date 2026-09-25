@@ -14,7 +14,7 @@ import {
   WandSparkles,
   ShieldAlert,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BrandMark } from './components/BrandMark';
 import { CategoryNav } from './components/CategoryNav';
 import { CleanupPanel } from './components/CleanupPanel';
@@ -34,13 +34,14 @@ import {
 } from './lib/classify';
 import { buildProjectStorage, projectAppProperties } from './lib/projects';
 import { demoSnapshot } from './lib/demo-data';
+import { loadLastDriveIndex, saveDriveIndex } from './lib/drive-index';
 import { formatBytes } from './lib/format';
 import {
   listFilePermissions,
   moveFilesToTrash,
   removeFilePermission,
   restoreFilesFromTrash,
-  scanGoogleDrive,
+  syncGoogleDrive,
   updateProjectFolderMetadata,
 } from './lib/google-drive';
 import type {
@@ -93,6 +94,8 @@ export function CleanDriveApp() {
   const [projectFilterId, setProjectFilterId] = useState<string>();
   const [rules, setRules] = useState<CleanupRules>(loadRules);
   const [isDemo, setIsDemo] = useState(true);
+  const [isCached, setIsCached] = useState(false);
+  const [syncSummary, setSyncSummary] = useState<string>();
   const [activeCategory, setActiveCategory] = useState<CategoryId>('overview');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [scanState, setScanState] = useState<'idle' | 'scanning' | 'error'>('idle');
@@ -109,6 +112,23 @@ export function CleanDriveApp() {
   const [auditProgress, setAuditProgress] = useState({ done: 0, total: 0 });
   const [isRemovingPermission, setIsRemovingPermission] = useState(false);
 
+
+  useEffect(() => {
+    let cancelled = false;
+    loadLastDriveIndex()
+      .then((cached) => {
+        if (cancelled || !cached?.email || cached.files.length === 0) return;
+        setSnapshot(cached);
+        setIsDemo(false);
+        setIsCached(true);
+        setSyncSummary(cached.lastSyncedAt ? `Cache từ ${new Date(cached.lastSyncedAt).toLocaleString('vi-VN')}` : 'Đang dùng metadata cache');
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const classifiedFiles = useMemo(() => classifyFiles(snapshot.files, rules), [snapshot.files, rules]);
   const visibleFiles = useMemo(() => {
     const base = filterByCategory(classifiedFiles, activeCategory);
@@ -116,7 +136,7 @@ export function CleanDriveApp() {
     return scoped.sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0));
   }, [classifiedFiles, activeCategory, projectFilterId]);
 
-  const cleanupBlocked = !isDemo && snapshot.incompleteSearch;
+  const cleanupBlocked = !isDemo && (snapshot.incompleteSearch || isCached);
   const selectedFiles = classifiedFiles.filter((file) => selectedIds.has(file.id) && isCleanupCandidate(file));
   const suggestionFiles = classifiedFiles.filter(isCleanupCandidate);
   const potentialSavings = totalBytes(suggestionFiles);
@@ -163,11 +183,19 @@ export function CleanDriveApp() {
     setLastTrashBatch([]);
     setAccessAudits({});
     try {
-      const nextSnapshot = await scanGoogleDrive(setScanCount);
-      setSnapshot(nextSnapshot);
+      const result = await syncGoogleDrive(isDemo ? undefined : snapshot, setScanCount);
+      setSnapshot(result.snapshot);
       setIsDemo(false);
+      setIsCached(false);
       setScanState('idle');
-      if (nextSnapshot.incompleteSearch) {
+      setSyncSummary(
+        result.mode === 'incremental'
+          ? `Đồng bộ nhanh · ${result.changesApplied.toLocaleString('vi-VN')} thay đổi`
+          : `Quét toàn bộ · ${result.snapshot.files.length.toLocaleString('vi-VN')} file`
+      );
+      saveDriveIndex(result.snapshot).catch(() => undefined);
+
+      if (result.snapshot.incompleteSearch) {
         setMessage('Google báo kết quả quét chưa đầy đủ. Clean đã khóa thao tác dọn; hãy quét lại trước khi thay đổi file.');
       }
     } catch (error) {
@@ -291,7 +319,7 @@ export function CleanDriveApp() {
 
   const handleAuditAccess = async () => {
     const tagged = projectStorage.projects.filter((entry) => entry.tagged);
-    if (isDemo || !tagged.length || isAuditingAccess) return;
+    if (isDemo || isCached || !tagged.length || isAuditingAccess) return;
 
     setIsAuditingAccess(true);
     setAuditProgress({ done: 0, total: tagged.length });
@@ -318,7 +346,7 @@ export function CleanDriveApp() {
   };
 
   const handleRevokePermission = async (folderId: string, permission: DrivePermission) => {
-    if (isDemo || permission.role === 'owner') return;
+    if (isDemo || isCached || permission.role === 'owner') return;
     setIsRemovingPermission(true);
     setMessage(undefined);
     try {
@@ -352,6 +380,10 @@ export function CleanDriveApp() {
 
   const handleSaveProject = async (folderId: string, metadata: ProjectMetadataInput) => {
     const appProperties = projectAppProperties(metadata);
+    if (isCached) {
+      setMessage('Hãy đồng bộ Drive trước khi thay đổi metadata project.');
+      throw new Error('Drive đang ở chế độ cache.');
+    }
     setIsSavingProject(true);
     setMessage(undefined);
     try {
@@ -381,12 +413,18 @@ export function CleanDriveApp() {
         </a>
         <div className="topbar__actions">
           <a className="hub-back-link" href="/">Apps</a>
-          <span className={isDemo ? 'data-badge is-demo' : 'data-badge is-live'}>
-            <span /> {isDemo ? 'Dữ liệu mô phỏng' : 'Drive đã kết nối'}
+          <span className={isDemo ? 'data-badge is-demo' : isCached ? 'data-badge is-cached' : 'data-badge is-live'} title={syncSummary}>
+            <span /> {isDemo ? 'Dữ liệu mô phỏng' : isCached ? 'Metadata cache' : 'Drive đã đồng bộ'}
           </span>
           <button className="connect-button" type="button" onClick={handleScan} disabled={scanState === 'scanning'}>
             {scanState === 'scanning' ? <RefreshCw className="spin" size={17} /> : <Cloud size={17} />}
-            {scanState === 'scanning' ? `Đang quét ${scanCount.toLocaleString('vi-VN')} file` : isDemo ? 'Kết nối Google Drive' : 'Quét lại Drive'}
+            {scanState === 'scanning'
+              ? `Đang đồng bộ ${scanCount.toLocaleString('vi-VN')}`
+              : isDemo
+                ? 'Kết nối Google Drive'
+                : isCached
+                  ? 'Đồng bộ Drive'
+                  : 'Đồng bộ thay đổi'}
           </button>
           <div className="avatar" title={snapshot.email}>{snapshot.displayName?.charAt(0) || 'B'}</div>
         </div>
@@ -528,7 +566,7 @@ export function CleanDriveApp() {
                 progress={cleanProgress}
                 result={cleanResult}
                 cleanupBlocked={cleanupBlocked}
-                blockedReason="Lần quét chưa hoàn chỉnh nên Clean đã khóa mọi thay đổi file."
+                blockedReason={isCached ? 'Đây là metadata cache. Hãy đồng bộ Drive trước khi thay đổi file.' : 'Lần quét chưa hoàn chỉnh nên Clean đã khóa mọi thay đổi file.'}
                 undoFiles={lastTrashBatch}
                 isRestoring={isRestoring}
                 onClean={() => setShowConfirm(true)}
@@ -555,7 +593,7 @@ export function CleanDriveApp() {
           <AccessPanel
             projects={projectStorage.projects}
             audits={accessAudits}
-            isDemo={isDemo}
+            isDemo={isDemo || isCached}
             isAuditing={isAuditingAccess}
             auditProgress={auditProgress}
             nonOwnedCount={snapshot.files.filter((file) => file.ownedByMe === false).length}

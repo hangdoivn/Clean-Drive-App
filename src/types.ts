@@ -32,6 +32,8 @@ export type DriveSnapshot = {
   displayName?: string;
   email?: string;
   incompleteSearch: boolean;
+  changePageToken?: string;
+  lastSyncedAt?: string;
 };
 
 export type CategoryId = 'overview' | 'large' | 'duplicate' | 'old' | 'empty';
