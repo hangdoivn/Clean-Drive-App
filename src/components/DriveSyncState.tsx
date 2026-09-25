@@ -22,7 +22,7 @@ export function DriveSyncState({ mode, count = 0 }: Props) {
               ? 'Clean đang kiểm tra metadata cache trên thiết bị này trước khi quyết định hiển thị dữ liệu.'
               : count > 0
                 ? `Đã đọc ${count.toLocaleString('vi-VN')} file. Clean chỉ cập nhật giao diện sau khi dữ liệu Drive hoàn tất.`
-                : 'Đang xác minh tài khoản và chuẩn bị metadata. Dữ liệu mô phỏng đã được ẩn.'}
+                : 'Đang xác minh tài khoản và chuẩn bị metadata thật từ Google Drive.'}
           </p>
         </div>
       </div>
