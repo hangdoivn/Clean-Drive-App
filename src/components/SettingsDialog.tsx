@@ -83,11 +83,11 @@ export function SettingsDialog({
           </div>
         </div>
         <div className="settings-actions">
-          <button type="button" disabled={isSyncing} onClick={() => void onFullReindex()}>
+          <button type="button" disabled={isSyncing} onClick={() => { void onFullReindex().catch(() => undefined); }}>
             <RefreshCw className={isSyncing ? 'spin' : ''} size={15} />
             {isSyncing ? 'Đang re-index…' : 'Full re-index Drive'}
           </button>
-          <button type="button" disabled={isSyncing} onClick={() => void onClearCache()}>
+          <button type="button" disabled={isSyncing} onClick={() => { void onClearCache().catch(() => undefined); }}>
             <Trash2 size={15} /> Xóa metadata cache máy này
           </button>
         </div>

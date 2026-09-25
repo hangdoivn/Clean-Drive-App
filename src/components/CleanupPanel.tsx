@@ -33,7 +33,7 @@ export function CleanupPanel({
   const undoBytes = undoFiles.reduce((sum, file) => sum + BigInt(file.quotaBytesUsed || file.size || '0'), 0n);
 
   return (
-    <aside className="cleanup-panel" aria-label="Kế hoạch dọn">
+    <aside className={`cleanup-panel${selected.length ? ' has-selection' : ''}`} aria-label="Kế hoạch dọn">
       <div className="cleanup-panel__heading">
         <div className="cleanup-panel__title">
           <h2>Kế hoạch dọn</h2>

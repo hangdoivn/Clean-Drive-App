@@ -736,7 +736,11 @@ export function CleanDriveApp() {
           <div className="message-banner" role="alert">
             <AlertCircle size={18} />
             <span>{message}</span>
-            {scanState === 'error' || cleanupBlocked ? <button type="button" onClick={handleScan}>Quét lại <ArrowRight size={14} /></button> : null}
+            {scanState === 'error' || cleanupBlocked ? (
+              <button type="button" onClick={handleScan}>
+                {isCached ? 'Kết nối lại' : scanState === 'error' ? 'Thử lại' : 'Đồng bộ'} <ArrowRight size={14} />
+              </button>
+            ) : null}
           </div>
         ) : null}
 
