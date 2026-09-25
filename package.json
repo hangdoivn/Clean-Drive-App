@@ -1,13 +1,14 @@
 {
   "name": "clean-drive",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0-rc.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "check": "npm test && npm run build"
   },
   "dependencies": {
     "lucide-react": "^1.48.0",

@@ -1,4 +1,5 @@
 import type { DriveFile, DrivePermission, DriveSnapshot, StorageQuota } from '../types';
+import { applyDriveChanges } from './drive-changes';
 
 const READ_SCOPE = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 const WRITE_SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -226,17 +227,10 @@ async function incrementalSync(
       changes?: { fileId?: string; removed?: boolean; file?: DriveFile }[];
     }>(`/changes?${params.toString()}`, token);
 
-    for (const change of page.changes ?? []) {
-      const id = change.fileId || change.file?.id;
-      if (!id) continue;
-
-      if (change.removed || change.file?.trashed) {
-        filesById.delete(id);
-      } else if (change.file) {
-        filesById.set(id, change.file);
-      }
-      applied += 1;
-    }
+    const reduced = applyDriveChanges([...filesById.values()], page.changes ?? []);
+    filesById.clear();
+    for (const file of reduced.files) filesById.set(file.id, file);
+    applied += reduced.applied;
 
     onProgress(applied);
     if (page.newStartPageToken) newStartPageToken = page.newStartPageToken;
