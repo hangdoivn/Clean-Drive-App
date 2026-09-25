@@ -12,6 +12,7 @@ import {
   Trash2,
   FolderKanban,
   WandSparkles,
+  ShieldAlert,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BrandMark } from './components/BrandMark';
@@ -19,6 +20,7 @@ import { CategoryNav } from './components/CategoryNav';
 import { CleanupPanel } from './components/CleanupPanel';
 import { CleanupRulesBar } from './components/CleanupRulesBar';
 import { ProjectStoragePanel } from './components/ProjectStoragePanel';
+import { AccessPanel } from './components/AccessPanel';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
 import { StatCard } from './components/StatCard';
@@ -33,8 +35,24 @@ import {
 import { buildProjectStorage, projectAppProperties } from './lib/projects';
 import { demoSnapshot } from './lib/demo-data';
 import { formatBytes } from './lib/format';
-import { moveFilesToTrash, restoreFilesFromTrash, scanGoogleDrive, updateProjectFolderMetadata } from './lib/google-drive';
-import type { CategoryId, CleanupRules, DriveFile, DriveSnapshot, FileKind, ProjectMetadataInput } from './types';
+import {
+  listFilePermissions,
+  moveFilesToTrash,
+  removeFilePermission,
+  restoreFilesFromTrash,
+  scanGoogleDrive,
+  updateProjectFolderMetadata,
+} from './lib/google-drive';
+import type {
+  AccessAuditResult,
+  CategoryId,
+  CleanupRules,
+  DriveFile,
+  DrivePermission,
+  DriveSnapshot,
+  FileKind,
+  ProjectMetadataInput,
+} from './types';
 
 const RULES_STORAGE_KEY = 'hangdoi-clean-drive-rules-v1';
 
@@ -70,7 +88,7 @@ function toBytes(value?: string): bigint {
 
 export function CleanDriveApp() {
   const [snapshot, setSnapshot] = useState<DriveSnapshot>(demoSnapshot);
-  const [mode, setMode] = useState<'cleanup' | 'projects'>('cleanup');
+  const [mode, setMode] = useState<'cleanup' | 'projects' | 'access'>('cleanup');
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState<string>();
   const [rules, setRules] = useState<CleanupRules>(loadRules);
@@ -86,6 +104,10 @@ export function CleanDriveApp() {
   const [cleanResult, setCleanResult] = useState<{ succeeded: number; failed: number }>();
   const [lastTrashBatch, setLastTrashBatch] = useState<DriveFile[]>([]);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [accessAudits, setAccessAudits] = useState<Record<string, AccessAuditResult>>({});
+  const [isAuditingAccess, setIsAuditingAccess] = useState(false);
+  const [auditProgress, setAuditProgress] = useState({ done: 0, total: 0 });
+  const [isRemovingPermission, setIsRemovingPermission] = useState(false);
 
   const classifiedFiles = useMemo(() => classifyFiles(snapshot.files, rules), [snapshot.files, rules]);
   const visibleFiles = useMemo(() => {
@@ -139,6 +161,7 @@ export function CleanDriveApp() {
     setSelectedIds(new Set());
     setCleanResult(undefined);
     setLastTrashBatch([]);
+    setAccessAudits({});
     try {
       const nextSnapshot = await scanGoogleDrive(setScanCount);
       setSnapshot(nextSnapshot);
@@ -265,6 +288,60 @@ export function CleanDriveApp() {
 
 
 
+
+  const handleAuditAccess = async () => {
+    const tagged = projectStorage.projects.filter((entry) => entry.tagged);
+    if (isDemo || !tagged.length || isAuditingAccess) return;
+
+    setIsAuditingAccess(true);
+    setAuditProgress({ done: 0, total: tagged.length });
+    setMessage(undefined);
+
+    const next: Record<string, AccessAuditResult> = {};
+    for (let index = 0; index < tagged.length; index += 1) {
+      const project = tagged[index];
+      try {
+        const permissions = await listFilePermissions(project.folder.id);
+        next[project.folder.id] = { folderId: project.folder.id, permissions };
+      } catch (error) {
+        next[project.folder.id] = {
+          folderId: project.folder.id,
+          permissions: [],
+          error: error instanceof Error ? error.message : 'Không thể đọc quyền project.',
+        };
+      }
+      setAccessAudits({ ...next });
+      setAuditProgress({ done: index + 1, total: tagged.length });
+    }
+
+    setIsAuditingAccess(false);
+  };
+
+  const handleRevokePermission = async (folderId: string, permission: DrivePermission) => {
+    if (isDemo || permission.role === 'owner') return;
+    setIsRemovingPermission(true);
+    setMessage(undefined);
+    try {
+      await removeFilePermission(folderId, permission.id);
+      setAccessAudits((current) => {
+        const audit = current[folderId];
+        if (!audit) return current;
+        return {
+          ...current,
+          [folderId]: {
+            ...audit,
+            permissions: audit.permissions.filter((item) => item.id !== permission.id),
+          },
+        };
+      });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Không thể gỡ quyền truy cập.');
+      throw error;
+    } finally {
+      setIsRemovingPermission(false);
+    }
+  };
+
   const handleReviewProject = (folderId: string) => {
     setProjectFilterId(folderId);
     setActiveCategory('overview');
@@ -336,6 +413,9 @@ export function CleanDriveApp() {
             {projectStorage.projects.filter((entry) => entry.tagged).length > 0 ? (
               <b>{projectStorage.projects.filter((entry) => entry.tagged).length}</b>
             ) : null}
+          </button>
+          <button type="button" className={mode === 'access' ? 'is-active' : ''} onClick={() => setMode('access')}>
+            <ShieldAlert size={16} /> Quyền truy cập
           </button>
         </nav>
 
@@ -461,7 +541,7 @@ export function CleanDriveApp() {
               <HardDrive size={15} /> Dung lượng giải phóng là ước tính từ metadata Google Drive và có thể cập nhật chậm sau khi dọn.
             </footer>
           </>
-        ) : (
+        ) : mode === 'projects' ? (
           <ProjectStoragePanel
             entries={projectStorage.projects}
             unclassifiedBytes={projectStorage.unclassifiedBytes}
@@ -470,6 +550,18 @@ export function CleanDriveApp() {
             isSaving={isSavingProject}
             onSave={handleSaveProject}
             onReview={handleReviewProject}
+          />
+        ) : (
+          <AccessPanel
+            projects={projectStorage.projects}
+            audits={accessAudits}
+            isDemo={isDemo}
+            isAuditing={isAuditingAccess}
+            auditProgress={auditProgress}
+            nonOwnedCount={snapshot.files.filter((file) => file.ownedByMe === false).length}
+            isRemoving={isRemovingPermission}
+            onAudit={handleAuditAccess}
+            onRevoke={handleRevokePermission}
           />
         )}
       </main>

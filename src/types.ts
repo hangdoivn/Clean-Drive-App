@@ -15,6 +15,8 @@ export type DriveFile = {
   capabilities?: { canTrash?: boolean };
   webViewLink?: string;
   appProperties?: Record<string, string>;
+  owners?: { displayName?: string; emailAddress?: string }[];
+  shared?: boolean;
 };
 
 export type StorageQuota = {
@@ -85,4 +87,22 @@ export type ProjectMetadataInput = {
   name: string;
   client: string;
   status: ProjectStatus;
+};
+
+
+export type DrivePermission = {
+  id: string;
+  type: string;
+  role: string;
+  emailAddress?: string;
+  domain?: string;
+  displayName?: string;
+  allowFileDiscovery?: boolean;
+  deleted?: boolean;
+};
+
+export type AccessAuditResult = {
+  folderId: string;
+  permissions: DrivePermission[];
+  error?: string;
 };

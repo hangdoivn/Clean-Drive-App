@@ -1,4 +1,4 @@
-import type { DriveFile, DriveSnapshot, StorageQuota } from '../types';
+import type { DriveFile, DrivePermission, DriveSnapshot, StorageQuota } from '../types';
 
 const READ_SCOPE = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 const WRITE_SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -123,7 +123,7 @@ export async function scanGoogleDrive(onProgress: (filesFound: number) => void):
   const fileFields = [
     'id', 'name', 'mimeType', 'size', 'quotaBytesUsed', 'md5Checksum',
     'createdTime', 'modifiedTime', 'viewedByMeTime', 'parents', 'ownedByMe',
-    'starred', 'trashed', 'capabilities/canTrash', 'webViewLink', 'appProperties',
+    'starred', 'trashed', 'capabilities/canTrash', 'webViewLink', 'appProperties', 'owners(displayName,emailAddress)', 'shared',
   ].join(',');
 
   const aboutPromise = driveFetch<{
@@ -237,4 +237,39 @@ export async function updateProjectFolderMetadata(
     method: 'PATCH',
     body: JSON.stringify({ appProperties }),
   }));
+}
+
+
+export async function listFilePermissions(fileId: string): Promise<DrivePermission[]> {
+  const token = await requestAccessToken(READ_SCOPE);
+  const permissions: DrivePermission[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const params = new URLSearchParams({
+      pageSize: '100',
+      supportsAllDrives: 'true',
+      fields: 'nextPageToken,permissions(id,type,role,emailAddress,domain,displayName,allowFileDiscovery,deleted)',
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+
+    const page = await driveFetch<{
+      nextPageToken?: string;
+      permissions?: DrivePermission[];
+    }>(`/files/${encodeURIComponent(fileId)}/permissions?${params.toString()}`, token);
+
+    permissions.push(...(page.permissions ?? []));
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+
+  return permissions;
+}
+
+export async function removeFilePermission(fileId: string, permissionId: string): Promise<void> {
+  const token = await requestAccessToken(WRITE_SCOPE);
+  await withBackoff(() => driveFetch<void>(
+    `/files/${encodeURIComponent(fileId)}/permissions/${encodeURIComponent(permissionId)}?supportsAllDrives=true`,
+    token,
+    { method: 'DELETE' },
+  ));
 }
