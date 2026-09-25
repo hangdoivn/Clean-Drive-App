@@ -7,6 +7,7 @@ const DEFAULT_GOOGLE_CLIENT_ID = '896234921104-0804kgr66honmum9b4n88ujs8njknc51.
 
 type TokenResponse = {
   access_token?: string;
+  expires_in?: number;
   error?: string;
   error_description?: string;
 };
@@ -42,6 +43,9 @@ declare global {
   }
 }
 
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
+const consentedScopes = new Set<string>();
+
 function getClientId(): string {
   return (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || DEFAULT_GOOGLE_CLIENT_ID;
 }
@@ -56,11 +60,15 @@ async function waitForGoogleIdentity(): Promise<NonNullable<Window['google']>> {
 }
 
 export async function requestAccessToken(scope: string): Promise<string> {
+  const cached = tokenCache.get(scope);
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+
   const google = await waitForGoogleIdentity();
   return new Promise((resolve, reject) => {
     const timeoutId = window.setTimeout(() => {
       reject(new Error('Phiên cấp quyền đã hết thời gian. Hãy thử kết nối lại.'));
     }, 60_000);
+
     const client = google.accounts.oauth2.initTokenClient({
       client_id: getClientId(),
       scope,
@@ -70,10 +78,18 @@ export async function requestAccessToken(scope: string): Promise<string> {
           reject(new Error(response.error_description || response.error || 'Không nhận được access token.'));
           return;
         }
+
+        const expiresIn = Math.max(60, response.expires_in ?? 3600);
+        tokenCache.set(scope, {
+          token: response.access_token,
+          expiresAt: Date.now() + expiresIn * 1000,
+        });
+        consentedScopes.add(scope);
         resolve(response.access_token);
       },
     });
-    client.requestAccessToken({ prompt: 'consent' });
+
+    client.requestAccessToken({ prompt: consentedScopes.has(scope) ? '' : 'consent' });
   });
 }
 
@@ -172,8 +188,9 @@ async function withBackoff<T>(operation: () => Promise<T>, maxAttempts = 4): Pro
   throw lastError;
 }
 
-export async function moveFilesToTrash(
+async function setTrashState(
   files: DriveFile[],
+  trashed: boolean,
   onProgress: (completed: number) => void,
 ): Promise<{ succeeded: string[]; failed: { id: string; message: string }[] }> {
   const token = await requestAccessToken(WRITE_SCOPE);
@@ -184,7 +201,7 @@ export async function moveFilesToTrash(
     try {
       await withBackoff(() => driveFetch(`/files/${encodeURIComponent(file.id)}?fields=id,trashed`, token, {
         method: 'PATCH',
-        body: JSON.stringify({ trashed: true }),
+        body: JSON.stringify({ trashed }),
       }));
       succeeded.push(file.id);
     } catch (error) {
@@ -194,4 +211,18 @@ export async function moveFilesToTrash(
   }
 
   return { succeeded, failed };
+}
+
+export function moveFilesToTrash(
+  files: DriveFile[],
+  onProgress: (completed: number) => void,
+) {
+  return setTrashState(files, true, onProgress);
+}
+
+export function restoreFilesFromTrash(
+  files: DriveFile[],
+  onProgress: (completed: number) => void,
+) {
+  return setTrashState(files, false, onProgress);
 }

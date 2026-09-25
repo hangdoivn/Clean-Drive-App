@@ -18,6 +18,30 @@ function getProtectedReason(file: DriveFile): string | undefined {
   return undefined;
 }
 
+function lastActivityAt(file: DriveFile): number {
+  const viewed = file.viewedByMeTime ? new Date(file.viewedByMeTime).getTime() : 0;
+  const modified = file.modifiedTime ? new Date(file.modifiedTime).getTime() : 0;
+  return Math.max(viewed, modified);
+}
+
+function chooseDuplicateKeeper(bucket: DriveFile[]): DriveFile {
+  return [...bucket].sort((a, b) => {
+    const aProtected = Boolean(getProtectedReason(a));
+    const bProtected = Boolean(getProtectedReason(b));
+    if (aProtected !== bProtected) return aProtected ? -1 : 1;
+
+    const aActivity = lastActivityAt(a);
+    const bActivity = lastActivityAt(b);
+    if (aActivity !== bActivity) return bActivity - aActivity;
+
+    const aCreated = a.createdTime ? new Date(a.createdTime).getTime() : 0;
+    const bCreated = b.createdTime ? new Date(b.createdTime).getTime() : 0;
+    if (aCreated !== bCreated) return aCreated - bCreated;
+
+    return a.id.localeCompare(b.id);
+  })[0];
+}
+
 export function classifyFiles(files: DriveFile[]): ClassifiedFile[] {
   const childCountByFolder = new Map<string, number>();
   const duplicateBuckets = new Map<string, DriveFile[]>();
@@ -34,10 +58,16 @@ export function classifyFiles(files: DriveFile[]): ClassifiedFile[] {
     }
   }
 
-  const duplicateIds = new Map<string, number>();
-  for (const bucket of duplicateBuckets.values()) {
-    if (bucket.length > 1) {
-      for (const file of bucket) duplicateIds.set(file.id, bucket.length);
+  const duplicateMeta = new Map<string, { count: number; groupId: string; role: 'keep' | 'remove' }>();
+  for (const [groupId, bucket] of duplicateBuckets.entries()) {
+    if (bucket.length <= 1) continue;
+    const keeper = chooseDuplicateKeeper(bucket);
+    for (const file of bucket) {
+      duplicateMeta.set(file.id, {
+        count: bucket.length,
+        groupId,
+        role: file.id === keeper.id ? 'keep' : 'remove',
+      });
     }
   }
 
@@ -46,10 +76,11 @@ export function classifyFiles(files: DriveFile[]): ClassifiedFile[] {
   return files.map((file) => {
     const categories: ClassifiedFile['categories'] = [];
     const bytes = fileBytes(file);
+    const duplicate = duplicateMeta.get(file.id);
 
     if (bytes >= LARGE_FILE_BYTES && file.mimeType !== FOLDER_MIME) categories.push('large');
-    if (duplicateIds.has(file.id)) categories.push('duplicate');
-    if (file.modifiedTime && new Date(file.modifiedTime).getTime() < oldThreshold) categories.push('old');
+    if (duplicate) categories.push('duplicate');
+    if (lastActivityAt(file) > 0 && lastActivityAt(file) < oldThreshold) categories.push('old');
     if (file.mimeType === FOLDER_MIME && !childCountByFolder.has(file.id)) categories.push('empty');
 
     return {
@@ -57,9 +88,17 @@ export function classifyFiles(files: DriveFile[]): ClassifiedFile[] {
       bytes,
       categories,
       protectedReason: getProtectedReason(file),
-      duplicateCount: duplicateIds.get(file.id),
+      duplicateCount: duplicate?.count,
+      duplicateGroupId: duplicate?.groupId,
+      duplicateRole: duplicate?.role,
     };
   });
+}
+
+export function isCleanupCandidate(file: ClassifiedFile): boolean {
+  if (file.categories.length === 0 || file.protectedReason) return false;
+  if (file.duplicateRole === 'keep') return false;
+  return true;
 }
 
 export function filterByCategory(files: ClassifiedFile[], category: CategoryId): ClassifiedFile[] {

@@ -347,3 +347,40 @@ a.hub-card:hover {
   .hub-card { min-height: 220px; border-radius: 20px; }
   .hub-hero__copy h1 { font-size: clamp(40px, 13vw, 58px); }
 }
+
+.hub-back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 10px;
+  color: #667085;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: .76rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.hub-back-link:hover { color: var(--blue); background: #f8faff; }
+.storage-card__top > span.is-unbounded { background: #f1f4f8; color: #7b8495; }
+.legend-other { background: #cad7f4; }
+.undo-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 41px;
+  margin-bottom: 8px;
+  color: #2857c7;
+  border: 1px solid #cddaf7;
+  border-radius: 10px;
+  background: #f3f7ff;
+  font-size: .76rem;
+  font-weight: 760;
+}
+.undo-action:hover:not(:disabled) { background: #eaf1ff; }
+.undo-action:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 680px) {
+  .hub-back-link { display: none; }
+}

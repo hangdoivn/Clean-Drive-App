@@ -33,9 +33,13 @@ export type DriveSnapshot = {
 
 export type CategoryId = 'overview' | 'large' | 'duplicate' | 'old' | 'empty';
 
+export type DuplicateRole = 'keep' | 'remove';
+
 export type ClassifiedFile = DriveFile & {
   bytes: bigint;
   categories: Exclude<CategoryId, 'overview'>[];
   protectedReason?: string;
   duplicateCount?: number;
+  duplicateGroupId?: string;
+  duplicateRole?: DuplicateRole;
 };
