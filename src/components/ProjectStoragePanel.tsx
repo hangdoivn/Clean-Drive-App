@@ -52,6 +52,22 @@ export function ProjectStoragePanel({
     retentionPolicyId: 'internal',
   });
 
+  const archiveQueue = useMemo(() => {
+    return entries
+      .filter((entry) => entry.tagged && entry.status !== 'active')
+      .map((entry) => ({ entry, summary: archiveByProject.get(entry.folder.id) }))
+      .filter((item): item is { entry: ProjectStorageEntry; summary: ArchiveProjectSummary } => Boolean(item.summary))
+      .filter((item) => item.summary.safeRecoverableCount > 0 || item.summary.reviewCount > 0)
+      .sort((a, b) => {
+        if (a.summary.safeRecoverableBytes !== b.summary.safeRecoverableBytes) {
+          return b.summary.safeRecoverableBytes > a.summary.safeRecoverableBytes ? 1 : -1;
+        }
+        return b.summary.reviewBytes > a.summary.reviewBytes ? 1 : b.summary.reviewBytes < a.summary.reviewBytes ? -1 : 0;
+      });
+  }, [entries, archiveByProject]);
+
+  const archiveRecoverable = archiveQueue.reduce((sum, item) => sum + item.summary.safeRecoverableBytes, 0n);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('vi');
     if (!q) return entries;
@@ -91,8 +107,9 @@ export function ProjectStoragePanel({
           <strong>{entries.filter((entry) => entry.tagged).length}</strong>
         </div>
         <div>
-          <span>Folder cấp cao</span>
-          <strong>{entries.length}</strong>
+          <span>Cần review archive</span>
+          <strong>{archiveQueue.length}</strong>
+          <small>{formatBytes(archiveRecoverable)} có thể thu hồi</small>
         </div>
         <div>
           <span>File chưa phân loại</span>
@@ -100,6 +117,41 @@ export function ProjectStoragePanel({
           <small>{formatBytes(unclassifiedBytes)}</small>
         </div>
       </div>
+
+      {archiveQueue.length > 0 ? (
+        <section className="archive-queue">
+          <div className="archive-queue__head">
+            <div>
+              <p className="eyebrow"><Archive size={14} /> Archive Queue</p>
+              <strong>Project cần review sau bàn giao</strong>
+              <span>Ưu tiên theo dung lượng có thể thu hồi an toàn.</span>
+            </div>
+            <b>{formatBytes(archiveRecoverable)}</b>
+          </div>
+          <div className="archive-queue__items">
+            {archiveQueue.slice(0, 4).map(({ entry, summary }) => (
+              <button
+                type="button"
+                className="archive-queue__item"
+                key={entry.folder.id}
+                onClick={() => onOpenArchive(entry.folder.id)}
+              >
+                <div>
+                  <strong>{entry.name}</strong>
+                  <span>{entry.client || entry.folder.name}</span>
+                </div>
+                <div className="archive-queue__metric">
+                  <strong>{formatBytes(summary.safeRecoverableBytes)}</strong>
+                  <span>
+                    {summary.safeRecoverableCount > 0 ? `${summary.safeRecoverableCount} safe` : '0 safe'}
+                    {summary.reviewCount > 0 ? ` · ${summary.reviewCount} review` : ''}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <div className="project-storage__card">
         <div className="project-storage__header">

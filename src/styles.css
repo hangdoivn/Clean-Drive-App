@@ -1332,3 +1332,100 @@ a.hub-card:hover {
   .project-editor { grid-template-columns:1fr 1fr 1fr; }
   .project-editor__actions { grid-column:1/-1; }
 }
+
+.archive-queue {
+  overflow:hidden;
+  border:1px solid #dfe7f3;
+  border-radius:16px;
+  background:#fff;
+  box-shadow:0 8px 28px rgba(37,52,79,.04);
+}
+.archive-queue__head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:14px 16px;
+  border-bottom:1px solid #edf0f5;
+  background:#fbfcfe;
+}
+.archive-queue__head > div > strong {
+  display:block;
+  margin-top:4px;
+  color:#344054;
+  font-size:.78rem;
+}
+.archive-queue__head > div > span {
+  display:block;
+  margin-top:2px;
+  color:#8a94a3;
+  font-size:.63rem;
+}
+.archive-queue__head > b {
+  color:#087456;
+  font-size:.86rem;
+}
+.archive-queue__items {
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:0;
+}
+.archive-queue__item {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  min-height:68px;
+  padding:11px 13px;
+  text-align:left;
+  border:0;
+  border-right:1px solid #edf0f5;
+  background:#fff;
+}
+.archive-queue__item:last-child { border-right:0; }
+.archive-queue__item:hover { background:#f8fbff; }
+.archive-queue__item > div:first-child {
+  min-width:0;
+}
+.archive-queue__item > div:first-child strong,
+.archive-queue__item > div:first-child span {
+  display:block;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.archive-queue__item > div:first-child strong {
+  color:#344054;
+  font-size:.68rem;
+}
+.archive-queue__item > div:first-child span {
+  margin-top:3px;
+  color:#929baa;
+  font-size:.59rem;
+}
+.archive-queue__metric {
+  flex:0 0 auto;
+  text-align:right;
+}
+.archive-queue__metric strong {
+  display:block;
+  color:#087456;
+  font-size:.68rem;
+}
+.archive-queue__metric span {
+  display:block;
+  margin-top:3px;
+  color:#98a0ad;
+  font-size:.56rem;
+}
+@media (max-width:1000px) {
+  .archive-queue__items { grid-template-columns:1fr 1fr; }
+  .archive-queue__item:nth-child(2) { border-right:0; }
+  .archive-queue__item:nth-child(-n+2) { border-bottom:1px solid #edf0f5; }
+}
+@media (max-width:680px) {
+  .archive-queue__head { align-items:flex-start; }
+  .archive-queue__items { grid-template-columns:1fr; }
+  .archive-queue__item { border-right:0; border-bottom:1px solid #edf0f5; }
+  .archive-queue__item:last-child { border-bottom:0; }
+}
