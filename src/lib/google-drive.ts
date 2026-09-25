@@ -35,6 +35,7 @@ declare global {
           initTokenClient: (config: {
             client_id: string;
             scope: string;
+            login_hint?: string;
             callback: (response: TokenResponse) => void;
           }) => TokenClient;
         };
@@ -44,7 +45,6 @@ declare global {
 }
 
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
-const consentedScopes = new Set<string>();
 
 function getClientId(): string {
   return (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || DEFAULT_GOOGLE_CLIENT_ID;
@@ -59,7 +59,7 @@ async function waitForGoogleIdentity(): Promise<NonNullable<Window['google']>> {
   return window.google;
 }
 
-export async function requestAccessToken(scope: string): Promise<string> {
+export async function requestAccessToken(scope: string, loginHint?: string): Promise<string> {
   const cached = tokenCache.get(scope);
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
 
@@ -72,6 +72,7 @@ export async function requestAccessToken(scope: string): Promise<string> {
     const client = google.accounts.oauth2.initTokenClient({
       client_id: getClientId(),
       scope,
+      ...(loginHint ? { login_hint: loginHint } : {}),
       callback: (response) => {
         window.clearTimeout(timeoutId);
         if (response.error || !response.access_token) {
@@ -84,12 +85,11 @@ export async function requestAccessToken(scope: string): Promise<string> {
           token: response.access_token,
           expiresAt: Date.now() + expiresIn * 1000,
         });
-        consentedScopes.add(scope);
         resolve(response.access_token);
       },
     });
 
-    client.requestAccessToken({ prompt: consentedScopes.has(scope) ? '' : 'consent' });
+    client.requestAccessToken({ prompt: '' });
   });
 }
 
@@ -262,7 +262,7 @@ export async function syncGoogleDrive(
   cached: DriveSnapshot | undefined,
   onProgress: (itemsFound: number) => void,
 ): Promise<DriveSyncResult> {
-  const token = await requestAccessToken(READ_SCOPE);
+  const token = await requestAccessToken(READ_SCOPE, cached?.email);
   const about = await getAbout(token);
   const email = about.user?.emailAddress;
 

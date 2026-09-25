@@ -134,7 +134,8 @@ export function CleanDriveApp() {
         setSnapshot(cached);
         setIsDemo(false);
         setIsCached(true);
-        setSyncSummary(cached.lastSyncedAt ? `Cache từ ${new Date(cached.lastSyncedAt).toLocaleString('vi-VN')}` : 'Đang dùng metadata cache');
+        setSyncSummary(cached.lastSyncedAt ? `Dữ liệu từ ${new Date(cached.lastSyncedAt).toLocaleString('vi-VN')}` : 'Dữ liệu từ lần đồng bộ trước');
+        setMessage('Đã khôi phục dữ liệu từ lần đồng bộ trước. Kết nối lại Drive để xác minh thay đổi mới trước khi dọn.');
       })
       .catch(() => undefined);
     return () => {
@@ -174,7 +175,7 @@ export function CleanDriveApp() {
     return scoped.sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0));
   }, [classifiedFiles, activeCategory, projectFilterId]);
 
-  const cleanupBlocked = !isDemo && (snapshot.incompleteSearch || isCached);
+  const cleanupBlocked = scanState === 'scanning' || (!isDemo && (snapshot.incompleteSearch || isCached));
   const selectedFiles = classifiedFiles.filter((file) => selectedIds.has(file.id) && isCleanupCandidate(file));
   const suggestionFiles = classifiedFiles.filter(isCleanupCandidate);
   const potentialSavings = totalBytes(suggestionFiles);
@@ -522,8 +523,24 @@ export function CleanDriveApp() {
         </a>
         <div className="topbar__actions">
           <a className="hub-back-link" href="/">Apps</a>
-          <span className={isDemo ? 'data-badge is-demo' : isCached ? 'data-badge is-cached' : 'data-badge is-live'} title={syncSummary}>
-            <span /> {isDemo ? 'Dữ liệu mô phỏng' : isCached ? 'Metadata cache' : 'Drive đã đồng bộ'}
+          <span
+            className={scanState === 'scanning'
+              ? 'data-badge is-syncing'
+              : isDemo
+                ? 'data-badge is-demo'
+                : isCached
+                  ? 'data-badge is-cached'
+                  : 'data-badge is-live'}
+            title={syncSummary}
+          >
+            <span />
+            {scanState === 'scanning'
+              ? 'Đang đồng bộ Drive'
+              : isDemo
+                ? 'Dữ liệu mô phỏng'
+                : isCached
+                  ? 'Cần kết nối lại'
+                  : 'Drive đã đồng bộ'}
           </span>
           <button className="connect-button" type="button" onClick={handleScan} disabled={scanState === 'scanning'}>
             {scanState === 'scanning' ? <RefreshCw className="spin" size={17} /> : <Cloud size={17} />}
@@ -532,7 +549,7 @@ export function CleanDriveApp() {
               : isDemo
                 ? 'Kết nối Google Drive'
                 : isCached
-                  ? 'Đồng bộ Drive'
+                  ? 'Kết nối lại Drive'
                   : 'Đồng bộ thay đổi'}
           </button>
           <div className="avatar" title={snapshot.email}>{snapshot.displayName?.charAt(0) || 'B'}</div>
@@ -678,7 +695,11 @@ export function CleanDriveApp() {
                 progress={cleanProgress}
                 result={cleanResult}
                 cleanupBlocked={cleanupBlocked}
-                blockedReason={isCached ? 'Đây là metadata cache. Hãy đồng bộ Drive trước khi thay đổi file.' : 'Lần quét chưa hoàn chỉnh nên Clean đã khóa mọi thay đổi file.'}
+                blockedReason={scanState === 'scanning'
+                  ? 'Clean đang đồng bộ Drive. Mọi thay đổi file tạm thời bị khóa.'
+                  : isCached
+                    ? 'Dữ liệu đã được khôi phục sau reload nhưng Google Drive chưa được xác minh lại. Hãy bấm Kết nối lại Drive.'
+                    : 'Lần quét chưa hoàn chỉnh nên Clean đã khóa mọi thay đổi file.'}
                 undoFiles={lastTrashBatch}
                 isRestoring={isRestoring}
                 onClean={() => setShowConfirm(true)}

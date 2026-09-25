@@ -717,3 +717,13 @@ a.hub-card:hover {
   .activity-metric { grid-column:2; text-align:left; display:flex; gap:8px; }
   .activity-metric span { margin-top:0; }
 }
+
+.data-badge.is-syncing > span {
+  background:#4f72df;
+  box-shadow:0 0 0 4px rgba(79,114,223,.12);
+  animation: clean-sync-pulse 1.3s ease-in-out infinite;
+}
+@keyframes clean-sync-pulse {
+  0%,100% { opacity:.55; transform:scale(.9); }
+  50% { opacity:1; transform:scale(1.08); }
+}
