@@ -22,7 +22,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Clean không tạo hoặc hiển thị dữ liệu mô phỏng trong runtime. Khi chưa kết nối Google Drive, app chỉ hiển thị màn kết nối. Để kết nối Drive thật, tạo OAuth 2.0 Client ID loại **Web application**, thêm origin chạy app vào Authorized JavaScript origins và điền `VITE_GOOGLE_CLIENT_ID` trong `.env.local`.
+Khi chưa kết nối Google Drive, app chỉ hiển thị màn kết nối. Dashboard chỉ xuất hiện sau khi Clean nhận metadata thật từ Drive. Để kết nối Drive thật, tạo OAuth 2.0 Client ID loại **Web application**, thêm origin chạy app vào Authorized JavaScript origins và điền `VITE_GOOGLE_CLIENT_ID` trong `.env.local`.
 
 ## Kết luận nghiên cứu
 
