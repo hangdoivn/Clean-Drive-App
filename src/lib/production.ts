@@ -102,6 +102,8 @@ function ancestryText(file: DriveFile, byId: Map<string, DriveFile>): string {
     visited.add(parentId);
     const parent = byId.get(parentId);
     if (!parent) break;
+    // Project name/status words such as "Delivered Campaign" must not classify every child as Final.
+    if (parent.appProperties?.hangdoiProject === '1') break;
     parts.push(parent.name);
     current = parent;
   }
