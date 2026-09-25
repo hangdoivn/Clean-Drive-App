@@ -9,12 +9,18 @@ export function loadActivityLog(): ActivityLogEntry[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ActivityLogEntry[];
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    const cleaned = parsed
       .filter((entry) => {
         const text = `${entry?.title || ''} ${entry?.detail || ''}`.toLocaleLowerCase('vi');
         return !text.includes('mô phỏng') && !text.includes('thao tác demo');
       })
       .slice(0, MAX_ENTRIES);
+
+    if (cleaned.length !== parsed.length) {
+      window.localStorage.setItem(KEY, JSON.stringify(cleaned));
+    }
+
+    return cleaned;
   } catch {
     return [];
   }
