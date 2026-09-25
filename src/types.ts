@@ -121,6 +121,14 @@ export type DrivePermission = {
   displayName?: string;
   allowFileDiscovery?: boolean;
   deleted?: boolean;
+  expirationTime?: string;
+  pendingOwner?: boolean;
+  permissionDetails?: {
+    inherited?: boolean;
+    inheritedFrom?: string;
+    permissionType?: string;
+    role?: string;
+  }[];
 };
 
 export type AccessAuditResult = {

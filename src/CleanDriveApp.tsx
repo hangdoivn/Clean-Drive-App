@@ -834,6 +834,8 @@ export function CleanDriveApp() {
         ) : mode === 'access' ? (
           <AccessPanel
             projects={projectStorage.projects}
+            files={effectiveFiles}
+            accountEmail={snapshot.email}
             audits={accessAudits}
             isDemo={isDemo || isCached}
             isAuditing={isAuditingAccess}

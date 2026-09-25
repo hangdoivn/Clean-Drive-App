@@ -1429,3 +1429,145 @@ a.hub-card:hover {
   .archive-queue__item { border-right:0; border-bottom:1px solid #edf0f5; }
   .archive-queue__item:last-child { border-bottom:0; }
 }
+
+.access-summary > div.is-danger {
+  border-color:#efcaca;
+  background:#fff7f7;
+}
+.access-summary > div.is-danger strong { color:#a23a3a; }
+
+.access-project.risk-critical { border-left:3px solid #d85b5b; }
+.access-project.risk-high { border-left:3px solid #e29a42; }
+.access-project.risk-medium { border-left:3px solid #8d73d6; }
+
+.access-state.is-critical { color:#a23a3a; background:#fff0f0; }
+.access-state.is-high { color:#a05b0b; background:#fff4e4; }
+.access-state.is-medium { color:#6f52bb; background:#f2eefe; }
+
+.permission-type.risk-critical { color:#a23a3a; background:#fff0f0; }
+.permission-type.risk-high { color:#a05b0b; background:#fff4e4; }
+.permission-type.risk-medium { color:#6f52bb; background:#f2eefe; }
+
+.permission-inherited,
+.offboarding-inherited {
+  color:#8d96a4;
+  font-size:.6rem;
+  white-space:nowrap;
+}
+
+.offboarding-card.is-expanded {
+  align-items:start;
+}
+.offboarding-warning {
+  display:flex;
+  align-items:flex-start;
+  gap:7px;
+  margin-bottom:10px;
+  padding:9px 10px;
+  color:#8d621f;
+  border:1px solid #eadcbc;
+  border-radius:9px;
+  background:#fff9ef;
+  font-size:.64rem;
+  line-height:1.45;
+}
+.offboarding-checklist {
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:8px;
+}
+.offboarding-checklist > div {
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  min-height:64px;
+  padding:9px 10px;
+  border:1px solid #e4e8ef;
+  border-radius:10px;
+  background:#fff;
+}
+.offboarding-checklist > div.is-done {
+  border-color:#d3eadf;
+  background:#f6fcf9;
+}
+.offboarding-checklist > div.is-done svg { color:#087456; }
+.offboarding-checklist > div.is-pending svg { color:#9a7a41; }
+.offboarding-checklist span strong,
+.offboarding-checklist span small {
+  display:block;
+}
+.offboarding-checklist span strong {
+  color:#465166;
+  font-size:.65rem;
+}
+.offboarding-checklist span small {
+  margin-top:3px;
+  color:#919aa8;
+  font-size:.59rem;
+  line-height:1.4;
+}
+.offboarding-status {
+  display:flex;
+  align-items:flex-start;
+  gap:8px;
+  margin-top:10px;
+  padding:10px 11px;
+  color:#8d621f;
+  border:1px solid #eadcbc;
+  border-radius:10px;
+  background:#fff9ef;
+}
+.offboarding-status.is-ready {
+  color:#087456;
+  border-color:#cfe8dc;
+  background:#f2faf6;
+}
+.offboarding-status strong,
+.offboarding-status span { display:block; }
+.offboarding-status strong { font-size:.68rem; }
+.offboarding-status span { margin-top:2px; color:#84909f; font-size:.6rem; }
+
+.offboarding-section {
+  margin-top:12px;
+  padding-top:10px;
+  border-top:1px solid #e7ebf1;
+}
+.offboarding-section > strong {
+  display:block;
+  margin-bottom:4px;
+  color:#39465b;
+  font-size:.68rem;
+}
+.ownership-match {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:7px 0;
+  border-top:1px solid #f0f2f6;
+}
+.ownership-match > div {
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+  color:#596579;
+}
+.ownership-match > div span {
+  overflow:hidden;
+  font-size:.64rem;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.ownership-match a {
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  flex:0 0 auto;
+  color:#315bb8;
+  font-size:.6rem;
+  text-decoration:none;
+}
+@media (max-width:900px) {
+  .offboarding-checklist { grid-template-columns:1fr; }
+}

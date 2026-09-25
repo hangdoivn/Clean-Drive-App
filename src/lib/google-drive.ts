@@ -363,7 +363,7 @@ export async function listFilePermissions(fileId: string): Promise<DrivePermissi
     const params = new URLSearchParams({
       pageSize: '100',
       supportsAllDrives: 'true',
-      fields: 'nextPageToken,permissions(id,type,role,emailAddress,domain,displayName,allowFileDiscovery,deleted)',
+      fields: 'nextPageToken,permissions(id,type,role,emailAddress,domain,displayName,allowFileDiscovery,deleted,expirationTime,pendingOwner,permissionDetails(inherited,inheritedFrom,permissionType,role))',
     });
     if (pageToken) params.set('pageToken', pageToken);
 
