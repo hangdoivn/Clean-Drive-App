@@ -3,6 +3,7 @@ import type { DriveFile, DriveSnapshot, StorageQuota } from '../types';
 const READ_SCOPE = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 const WRITE_SCOPE = 'https://www.googleapis.com/auth/drive';
 const API_ROOT = 'https://www.googleapis.com/drive/v3';
+const DEFAULT_GOOGLE_CLIENT_ID = '896234921104-0804kgr66honmum9b4n88ujs8njknc51.apps.googleusercontent.com';
 
 type TokenResponse = {
   access_token?: string;
@@ -42,9 +43,7 @@ declare global {
 }
 
 function getClientId(): string {
-  const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-  if (!clientId) throw new Error('Chưa cấu hình VITE_GOOGLE_CLIENT_ID.');
-  return clientId;
+  return (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) || DEFAULT_GOOGLE_CLIENT_ID;
 }
 
 async function waitForGoogleIdentity(): Promise<NonNullable<Window['google']>> {
