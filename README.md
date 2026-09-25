@@ -1,6 +1,6 @@
 # Hang Đôi Apps
 
-> Clean Drive status: **v1.0.0-rc.1** — release candidate. Automated CI is required to pass; real-Drive smoke test is still required before tagging v1.0.0.
+> Clean Drive status: **v1.0.0-rc.2** — release candidate. Automated CI is required to pass; real-Drive smoke test is still required before tagging v1.0.0.
 
 App hub cho hệ thống nội bộ tại `app.hangdoistudio.vn`.
 
@@ -22,7 +22,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Không có OAuth Client ID, app vẫn mở ở chế độ mô phỏng để thử toàn bộ luồng chọn và dọn file. Để kết nối Drive thật, tạo OAuth 2.0 Client ID loại **Web application**, thêm origin chạy app vào Authorized JavaScript origins và điền `VITE_GOOGLE_CLIENT_ID` trong `.env.local`.
+Clean không tạo hoặc hiển thị dữ liệu mô phỏng trong runtime. Khi chưa kết nối Google Drive, app chỉ hiển thị màn kết nối. Để kết nối Drive thật, tạo OAuth 2.0 Client ID loại **Web application**, thêm origin chạy app vào Authorized JavaScript origins và điền `VITE_GOOGLE_CLIENT_ID` trong `.env.local`.
 
 ## Kết luận nghiên cứu
 

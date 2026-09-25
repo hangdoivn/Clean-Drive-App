@@ -23,7 +23,7 @@ type Props = {
   files: DriveFile[];
   accountEmail?: string;
   audits: Record<string, AccessAuditResult>;
-  isDemo: boolean;
+  readOnly: boolean;
   isAuditing: boolean;
   auditProgress: { done: number; total: number };
   nonOwnedCount: number;
@@ -80,7 +80,7 @@ export function AccessPanel({
   files,
   accountEmail,
   audits,
-  isDemo,
+  readOnly,
   isAuditing,
   auditProgress,
   nonOwnedCount,
@@ -192,7 +192,7 @@ export function AccessPanel({
         <button
           className="connect-button"
           type="button"
-          disabled={isDemo || isAuditing || taggedProjects.length === 0}
+          disabled={readOnly || isAuditing || taggedProjects.length === 0}
           onClick={onAudit}
         >
           {isAuditing ? <RefreshCw className="spin" size={16} /> : <ShieldAlert size={16} />}
@@ -200,13 +200,7 @@ export function AccessPanel({
         </button>
       </div>
 
-      {isDemo ? (
-        <div className="access-empty">
-          <ShieldAlert size={30} />
-          <strong>Kết nối Google Drive để audit quyền thật</strong>
-          <span>Clean không tạo dữ liệu permission mô phỏng.</span>
-        </div>
-      ) : taggedProjects.length === 0 ? (
+      {taggedProjects.length === 0 ? (
         <div className="access-empty">
           <UsersRound size={30} />
           <strong>Chưa có project được thiết lập</strong>

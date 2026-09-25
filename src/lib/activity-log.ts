@@ -8,7 +8,13 @@ export function loadActivityLog(): ActivityLogEntry[] {
     const raw = window.localStorage.getItem(KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ActivityLogEntry[];
-    return Array.isArray(parsed) ? parsed.slice(0, MAX_ENTRIES) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry) => {
+        const text = `${entry?.title || ''} ${entry?.detail || ''}`.toLocaleLowerCase('vi');
+        return !text.includes('mô phỏng') && !text.includes('thao tác demo');
+      })
+      .slice(0, MAX_ENTRIES);
   } catch {
     return [];
   }

@@ -26,6 +26,7 @@ import { AccessPanel } from './components/AccessPanel';
 import { ActivityPanel } from './components/ActivityPanel';
 import { ArchiveReviewPanel } from './components/ArchiveReviewPanel';
 import { DriveSyncState } from './components/DriveSyncState';
+import { DriveConnectState } from './components/DriveConnectState';
 import { StorageHealthPanel } from './components/StorageHealthPanel';
 import { SettingsDialog } from './components/SettingsDialog';
 import { ConfirmDialog } from './components/ConfirmDialog';
@@ -43,7 +44,6 @@ import { buildProjectStorage, projectAppProperties } from './lib/projects';
 import { applyCoreProjectOverlay, loadCoreContext } from './lib/hangdoi-core';
 import { appendActivityLog, loadActivityLog } from './lib/activity-log';
 import { buildArchiveSummary, getRetentionPolicy, isArchiveSafeCandidate } from './lib/production';
-import { demoSnapshot } from './lib/demo-data';
 import { clearDriveIndex, loadLastDriveIndex, saveDriveIndex } from './lib/drive-index';
 import { formatBytes } from './lib/format';
 import {
@@ -70,6 +70,12 @@ import type {
 
 const RULES_STORAGE_KEY = 'hangdoi-clean-drive-rules-v1';
 const DUPLICATE_KEEPERS_KEY = 'hangdoi-clean-drive-duplicate-keepers-v1';
+
+const EMPTY_SNAPSHOT: DriveSnapshot = {
+  files: [],
+  quota: {},
+  incompleteSearch: false,
+};
 
 const kindLabels: Record<FileKind, string> = {
   video: 'Video',
@@ -115,7 +121,7 @@ function toBytes(value?: string): bigint {
 }
 
 export function CleanDriveApp() {
-  const [snapshot, setSnapshot] = useState<DriveSnapshot>(demoSnapshot);
+  const [snapshot, setSnapshot] = useState<DriveSnapshot>(EMPTY_SNAPSHOT);
   const [mode, setMode] = useState<'cleanup' | 'projects' | 'access' | 'activity'>('cleanup');
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState<string>();
@@ -123,7 +129,6 @@ export function CleanDriveApp() {
   const [archiveSafeOnly, setArchiveSafeOnly] = useState(false);
   const [rules, setRules] = useState<CleanupRules>(loadRules);
   const [duplicateKeeperOverrides, setDuplicateKeeperOverrides] = useState<Record<string, string>>(loadDuplicateKeeperOverrides);
-  const [isDemo, setIsDemo] = useState(true);
   const [isCached, setIsCached] = useState(false);
   const [bootState, setBootState] = useState<'restoring' | 'ready'>('restoring');
   const [syncSummary, setSyncSummary] = useState<string>();
@@ -155,9 +160,8 @@ export function CleanDriveApp() {
     loadLastDriveIndex()
       .then((cached) => {
         if (cancelled) return;
-        if (cached?.email && cached.files.length > 0) {
+        if (cached?.email) {
           setSnapshot(cached);
-          setIsDemo(false);
           setIsCached(true);
           setSyncSummary(cached.lastSyncedAt ? `Dữ liệu từ ${new Date(cached.lastSyncedAt).toLocaleString('vi-VN')}` : 'Dữ liệu từ lần đồng bộ trước');
           setMessage('Đã khôi phục dữ liệu từ lần đồng bộ trước. Kết nối lại Drive để xác minh thay đổi mới trước khi dọn.');
@@ -210,9 +214,10 @@ export function CleanDriveApp() {
     return archiveScoped.sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0));
   }, [classifiedFiles, activeCategory, projectFilterId, archiveSafeOnly]);
 
+  const hasDriveData = Boolean(snapshot.email);
   const isBootRestoring = bootState === 'restoring';
-  const isInitialSync = scanState === 'scanning' && isDemo;
-  const cleanupBlocked = isBootRestoring || scanState === 'scanning' || (!isDemo && (snapshot.incompleteSearch || isCached));
+  const isInitialSync = scanState === 'scanning' && !hasDriveData;
+  const cleanupBlocked = !hasDriveData || isBootRestoring || scanState === 'scanning' || snapshot.incompleteSearch || isCached;
   const selectedFiles = classifiedFiles.filter((file) => selectedIds.has(file.id) && isCleanupCandidate(file));
   const suggestionFiles = classifiedFiles.filter(isCleanupCandidate);
   const potentialSavings = totalBytes(suggestionFiles);
@@ -278,9 +283,8 @@ export function CleanDriveApp() {
     setLastTrashBatch([]);
     setAccessAudits({});
     try {
-      const result = await syncGoogleDrive(isDemo ? undefined : snapshot, setScanCount);
+      const result = await syncGoogleDrive(hasDriveData ? snapshot : undefined, setScanCount);
       setSnapshot(result.snapshot);
-      setIsDemo(false);
       setIsCached(false);
       setScanState('idle');
       setSyncSummary(
@@ -322,7 +326,6 @@ export function CleanDriveApp() {
     try {
       const result = await syncGoogleDrive(undefined, setScanCount);
       setSnapshot(result.snapshot);
-      setIsDemo(false);
       setIsCached(false);
       setScanState('idle');
       setSyncSummary(`Full re-index · ${result.snapshot.files.length.toLocaleString('vi-VN')} file`);
@@ -416,29 +419,6 @@ export function CleanDriveApp() {
     setCleanResult(undefined);
     setLastTrashBatch([]);
 
-    if (isDemo) {
-      for (let count = 1; count <= safeSelection.length; count += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 160));
-        setCleanProgress(count);
-      }
-      const ids = new Set(safeSelection.map((file) => file.id));
-      setSnapshot((current) => ({
-        ...current,
-        files: current.files.filter((file) => !ids.has(file.id)),
-      }));
-      setLastTrashBatch(safeSelection);
-      setCleanResult({ succeeded: safeSelection.length, failed: 0 });
-      recordActivity({
-        type: 'cleanup',
-        title: 'Dọn dữ liệu mô phỏng',
-        detail: 'Thao tác demo — không thay đổi Google Drive.',
-        count: safeSelection.length,
-        bytes: safeSelection.reduce((sum, file) => sum + file.bytes, 0n).toString(),
-      });
-      setSelectedIds(new Set());
-      setIsCleaning(false);
-      return;
-    }
 
     try {
       const result = await moveFilesToTrash(safeSelection, setCleanProgress);
@@ -475,19 +455,6 @@ export function CleanDriveApp() {
     setIsRestoring(true);
     setMessage(undefined);
 
-    if (isDemo) {
-      setSnapshot((current) => ({ ...current, files: [...current.files, ...lastTrashBatch] }));
-      recordActivity({
-        type: 'restore',
-        title: 'Khôi phục dữ liệu mô phỏng',
-        detail: 'Thao tác demo — không thay đổi Google Drive.',
-        count: lastTrashBatch.length,
-      });
-      setLastTrashBatch([]);
-      setCleanResult(undefined);
-      setIsRestoring(false);
-      return;
-    }
 
     try {
       const result = await restoreFilesFromTrash(lastTrashBatch, () => undefined);
@@ -537,7 +504,7 @@ export function CleanDriveApp() {
 
   const handleAuditAccess = async () => {
     const tagged = projectStorage.projects.filter((entry) => entry.tagged);
-    if (isDemo || isCached || !tagged.length || isAuditingAccess) return;
+    if (!hasDriveData || isCached || !tagged.length || isAuditingAccess) return;
 
     setIsAuditingAccess(true);
     setAuditProgress({ done: 0, total: tagged.length });
@@ -564,7 +531,7 @@ export function CleanDriveApp() {
   };
 
   const handleRevokePermission = async (folderId: string, permission: DrivePermission) => {
-    if (isDemo || isCached || permission.role === 'owner') return;
+    if (!hasDriveData || isCached || permission.role === 'owner') return;
     setIsRemovingPermission(true);
     setMessage(undefined);
     try {
@@ -615,14 +582,14 @@ export function CleanDriveApp() {
 
   const handleSaveProject = async (folderId: string, metadata: ProjectMetadataInput) => {
     const appProperties = projectAppProperties(metadata);
-    if (isCached) {
-      setMessage('Hãy đồng bộ Drive trước khi thay đổi metadata project.');
-      throw new Error('Drive đang ở chế độ cache.');
+    if (!hasDriveData || isCached) {
+      setMessage('Hãy kết nối và đồng bộ Google Drive trước khi thay đổi metadata project.');
+      throw new Error(!hasDriveData ? 'Google Drive chưa được kết nối.' : 'Drive đang ở chế độ cache.');
     }
     setIsSavingProject(true);
     setMessage(undefined);
     try {
-      if (!isDemo) await updateProjectFolderMetadata(folderId, appProperties);
+      await updateProjectFolderMetadata(folderId, appProperties);
       setSnapshot((current) => ({
         ...current,
         files: current.files.map((file) =>
@@ -664,8 +631,8 @@ export function CleanDriveApp() {
                 ? 'data-badge is-syncing'
                 : scanState === 'error'
                   ? 'data-badge is-error'
-                  : isDemo
-                    ? 'data-badge is-demo'
+                  : !hasDriveData
+                    ? 'data-badge is-disconnected'
                     : isCached
                       ? 'data-badge is-cached'
                       : 'data-badge is-live'}
@@ -678,8 +645,8 @@ export function CleanDriveApp() {
                 ? 'Đang đồng bộ Drive'
                 : scanState === 'error'
                   ? 'Không thể đồng bộ'
-                  : isDemo
-                    ? 'Dữ liệu mô phỏng'
+                  : !hasDriveData
+                    ? 'Chưa kết nối'
                     : isCached
                       ? 'Cần kết nối lại'
                       : 'Drive đã đồng bộ'}
@@ -692,13 +659,15 @@ export function CleanDriveApp() {
                 ? `Đã đọc ${scanCount.toLocaleString('vi-VN')} file`
                 : scanState === 'error'
                   ? 'Thử lại kết nối'
-                  : isDemo
+                  : !hasDriveData
                     ? 'Kết nối Google Drive'
                     : isCached
                       ? 'Kết nối lại Drive'
                       : 'Đồng bộ thay đổi'}
           </button>
-          <div className="avatar" title={snapshot.email}>{snapshot.displayName?.charAt(0) || 'B'}</div>
+          {hasDriveData ? (
+            <div className="avatar" title={snapshot.email}>{snapshot.displayName?.charAt(0) || 'G'}</div>
+          ) : null}
         </div>
       </header>
 
@@ -714,6 +683,7 @@ export function CleanDriveApp() {
           </button>
         </section>
 
+        {hasDriveData ? (
         <nav className="clean-mode-tabs" aria-label="Khu vực Clean Drive">
           <button type="button" className={mode === 'cleanup' ? 'is-active' : ''} onClick={() => setMode('cleanup')}>
             <WandSparkles size={16} /> Dọn dẹp
@@ -731,6 +701,7 @@ export function CleanDriveApp() {
             <Clock3 size={16} /> Nhật ký
           </button>
         </nav>
+        ) : null}
 
         {message ? (
           <div className="message-banner" role="alert">
@@ -738,7 +709,7 @@ export function CleanDriveApp() {
             <span>{message}</span>
             {scanState === 'error' || cleanupBlocked ? (
               <button type="button" onClick={handleScan}>
-                {isCached ? 'Kết nối lại' : scanState === 'error' ? 'Thử lại' : 'Đồng bộ'} <ArrowRight size={14} />
+                {!hasDriveData ? 'Kết nối Google Drive' : isCached ? 'Kết nối lại' : scanState === 'error' ? 'Thử lại' : 'Đồng bộ'} <ArrowRight size={14} />
               </button>
             ) : null}
           </div>
@@ -746,6 +717,12 @@ export function CleanDriveApp() {
 
         {isBootRestoring || isInitialSync ? (
           <DriveSyncState mode={isBootRestoring ? 'restoring' : 'scanning'} count={scanCount} />
+        ) : !hasDriveData ? (
+          <DriveConnectState
+            isConnecting={scanState === 'scanning'}
+            error={scanState === 'error' ? message : undefined}
+            onConnect={() => { void handleScan(); }}
+          />
         ) : mode === 'cleanup' ? (
           <>
             <section className="dashboard-grid" aria-label="Tổng quan dung lượng">
@@ -918,7 +895,7 @@ export function CleanDriveApp() {
             files={effectiveFiles}
             accountEmail={snapshot.email}
             audits={accessAudits}
-            isDemo={isDemo || isCached}
+            readOnly={isCached}
             isAuditing={isAuditingAccess}
             auditProgress={auditProgress}
             nonOwnedCount={snapshot.files.filter((file) => file.ownedByMe === false).length}
@@ -949,7 +926,6 @@ export function CleanDriveApp() {
       {showConfirm ? (
         <ConfirmDialog
           files={selectedFiles}
-          isDemo={isDemo}
           onCancel={() => setShowConfirm(false)}
           onConfirm={handleConfirmedClean}
         />

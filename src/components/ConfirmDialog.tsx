@@ -5,12 +5,11 @@ import type { ClassifiedFile } from '../types';
 
 type ConfirmDialogProps = {
   files: ClassifiedFile[];
-  isDemo: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 };
 
-export function ConfirmDialog({ files, isDemo, onCancel, onConfirm }: ConfirmDialogProps) {
+export function ConfirmDialog({ files, onCancel, onConfirm }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const bytes = files.reduce((sum, file) => sum + file.bytes, 0n);
 
@@ -31,7 +30,6 @@ export function ConfirmDialog({ files, isDemo, onCancel, onConfirm }: ConfirmDia
       <p>
         Dung lượng ước tính <strong>{formatBytes(bytes)}</strong>. File không bị xóa vĩnh viễn và có thể khôi phục trong 30 ngày.
       </p>
-      {isDemo ? <div className="demo-notice">Đây là dữ liệu mô phỏng — thao tác chỉ được diễn thử.</div> : null}
       <div className="dialog-actions">
         <button type="button" className="secondary-action" onClick={onCancel}>Quay lại kiểm tra</button>
         <button type="button" className="danger-action" onClick={onConfirm}>Xác nhận đưa vào thùng rác</button>
