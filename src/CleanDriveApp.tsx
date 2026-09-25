@@ -19,7 +19,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { BrandMark } from './components/BrandMark';
 import { CategoryNav } from './components/CategoryNav';
 import { CleanupPanel } from './components/CleanupPanel';
-import { CleanupRulesBar } from './components/CleanupRulesBar';
 import { ProjectStoragePanel } from './components/ProjectStoragePanel';
 import { CoreIntegrationPanel } from './components/CoreIntegrationPanel';
 import { AccessPanel } from './components/AccessPanel';
@@ -678,8 +677,6 @@ export function CleanDriveApp() {
               </div>
             </section>
 
-            <CleanupRulesBar rules={rules} onChange={updateRules} />
-
             {filteredProject ? (
               <div className="project-filter-banner">
                 <div>
@@ -707,7 +704,8 @@ export function CleanDriveApp() {
                 files={visibleFiles}
                 selectedIds={selectedIds}
                 cleanupBlocked={cleanupBlocked}
-                oldFileDays={rules.oldFileDays}
+                rules={rules}
+                onRulesChange={updateRules}
                 onToggle={handleToggle}
                 onToggleAll={handleToggleAll}
               />

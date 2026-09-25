@@ -35,9 +35,11 @@ export function CleanupPanel({
   return (
     <aside className="cleanup-panel" aria-label="Kế hoạch dọn">
       <div className="cleanup-panel__heading">
-        <span className="safe-badge"><ShieldCheck size={15} /> Chế độ an toàn</span>
-        <h2>Kế hoạch dọn</h2>
-        <p>{cleanupBlocked ? blockedReason : 'Chỉ những file bạn chọn mới được đưa vào thùng rác.'}</p>
+        <div className="cleanup-panel__title">
+          <h2>Kế hoạch dọn</h2>
+          <span className="safe-badge"><ShieldCheck size={14} /> An toàn</span>
+        </div>
+        <p>{cleanupBlocked ? blockedReason : 'Chỉ file bạn chọn mới được đưa vào thùng rác.'}</p>
       </div>
 
       <div className="cleanup-summary">
@@ -46,7 +48,7 @@ export function CleanupPanel({
           <strong>{selected.length} file</strong>
         </div>
         <div>
-          <span>Có thể giải phóng</span>
+          <span>Giải phóng</span>
           <strong>{formatBytes(bytes)}</strong>
         </div>
       </div>
@@ -63,7 +65,7 @@ export function CleanupPanel({
 
       {result ? (
         <div className="cleanup-result" aria-live="polite">
-          <CheckCircle2 size={20} />
+          <CheckCircle2 size={18} />
           <div>
             <strong>Đã xử lý xong</strong>
             <span>{result.succeeded} thành công · {result.failed} lỗi</span>
@@ -73,24 +75,27 @@ export function CleanupPanel({
 
       {undoFiles.length > 0 && onUndo ? (
         <button className="undo-action" type="button" disabled={isRestoring || isCleaning} onClick={onUndo}>
-          <Undo2 size={17} />
+          <Undo2 size={16} />
           {isRestoring ? 'Đang khôi phục…' : `Khôi phục ${undoFiles.length} file · ${formatBytes(undoBytes)}`}
         </button>
       ) : null}
 
-      <button
-        className="primary-action"
-        type="button"
-        disabled={!selected.length || isCleaning || isRestoring || cleanupBlocked}
-        onClick={onClean}
-      >
-        <Trash2 size={18} />
-        {isCleaning ? 'Đang đưa vào thùng rác…' : 'Đưa vào thùng rác'}
-      </button>
-      <button className="secondary-action" type="button" disabled={!selected.length || isCleaning || isRestoring} onClick={onClear}>
-        <RotateCcw size={16} /> Bỏ chọn
-      </button>
-      <p className="retention-note">Clean không xóa vĩnh viễn. File vẫn có thể được khôi phục từ thùng rác trước khi Google tự xóa.</p>
+      <div className="cleanup-actions">
+        <button
+          className="primary-action"
+          type="button"
+          disabled={!selected.length || isCleaning || isRestoring || cleanupBlocked}
+          onClick={onClean}
+        >
+          <Trash2 size={17} />
+          {isCleaning ? 'Đang xử lý…' : 'Đưa vào thùng rác'}
+        </button>
+        <button className="secondary-action" type="button" disabled={!selected.length || isCleaning || isRestoring} onClick={onClear}>
+          <RotateCcw size={15} /> Bỏ chọn
+        </button>
+      </div>
+
+      <p className="retention-note">Không xóa vĩnh viễn · vẫn có thể khôi phục từ thùng rác.</p>
     </aside>
   );
 }

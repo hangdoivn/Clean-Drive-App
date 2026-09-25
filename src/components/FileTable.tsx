@@ -1,17 +1,33 @@
-import { ExternalLink, LockKeyhole, Search, ShieldCheck } from 'lucide-react';
+import { ExternalLink, LockKeyhole, Search, ShieldCheck, SlidersHorizontal } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatBytes, formatDate } from '../lib/format';
-import type { ClassifiedFile, FileKind } from '../types';
+import type { ClassifiedFile, CleanupRules, FileKind } from '../types';
 import { FileIcon } from './FileIcon';
 
 type FileTableProps = {
   files: ClassifiedFile[];
   selectedIds: Set<string>;
   cleanupBlocked?: boolean;
-  oldFileDays: number;
+  rules: CleanupRules;
+  onRulesChange: (rules: CleanupRules) => void;
   onToggle: (file: ClassifiedFile) => void;
   onToggleAll: (files: ClassifiedFile[]) => void;
 };
+
+const LARGE_OPTIONS = [
+  { value: 250_000_000, label: '250 MB' },
+  { value: 500_000_000, label: '500 MB' },
+  { value: 1_000_000_000, label: '1 GB' },
+  { value: 2_000_000_000, label: '2 GB' },
+  { value: 5_000_000_000, label: '5 GB' },
+];
+
+const OLD_OPTIONS = [
+  { value: 180, label: '6 tháng' },
+  { value: 365, label: '1 năm' },
+  { value: 730, label: '2 năm' },
+  { value: 1095, label: '3 năm' },
+];
 
 const kindLabels: Record<FileKind, string> = {
   video: 'Video',
@@ -34,20 +50,30 @@ function reasonLabel(file: ClassifiedFile, oldFileDays: number): string {
   if (file.categories.includes('large')) return 'File dung lượng lớn';
   if (file.categories.includes('old')) {
     const years = oldFileDays / 365;
-    return years >= 1 ? `Không hoạt động hơn ${Number.isInteger(years) ? years : years.toFixed(1)} năm` : 'Không hoạt động hơn 6 tháng';
+    return years >= 1
+      ? `Không hoạt động hơn ${Number.isInteger(years) ? years : years.toFixed(1)} năm`
+      : 'Không hoạt động hơn 6 tháng';
   }
   if (file.categories.includes('empty')) return 'Không có file bên trong';
   return 'Đề xuất xem lại';
 }
 
 function disabledReason(file: ClassifiedFile, cleanupBlocked?: boolean): string | undefined {
-  if (cleanupBlocked) return 'Quét Drive chưa hoàn chỉnh';
+  if (cleanupBlocked) return 'Drive chưa ở trạng thái cho phép thay đổi';
   if (file.protectedReason) return file.protectedReason;
   if (file.duplicateRole === 'keep') return 'Clean giữ lại ít nhất 1 bản trong nhóm trùng lặp';
   return undefined;
 }
 
-export function FileTable({ files, selectedIds, cleanupBlocked, oldFileDays, onToggle, onToggleAll }: FileTableProps) {
+export function FileTable({
+  files,
+  selectedIds,
+  cleanupBlocked,
+  rules,
+  onRulesChange,
+  onToggle,
+  onToggleAll,
+}: FileTableProps) {
   const [query, setQuery] = useState('');
   const visibleFiles = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('vi');
@@ -61,15 +87,44 @@ export function FileTable({ files, selectedIds, cleanupBlocked, oldFileDays, onT
   return (
     <section className="files-card" aria-labelledby="files-title">
       <div className="files-card__header">
-        <div>
-          <p className="eyebrow">Xem trước trước khi dọn</p>
+        <div className="files-card__title">
+          <p className="eyebrow">Xem trước khi dọn</p>
           <h2 id="files-title">Các file nên xem lại</h2>
         </div>
-        <label className="search-box">
-          <Search size={17} aria-hidden="true" />
-          <span className="sr-only">Tìm theo tên file</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm theo tên" />
-        </label>
+
+        <div className="files-toolbar">
+          <div className="table-rules" aria-label="Ngưỡng đề xuất dọn">
+            <SlidersHorizontal size={15} aria-hidden="true" />
+            <label>
+              <span>File lớn</span>
+              <select
+                value={rules.largeFileBytes}
+                onChange={(event) => onRulesChange({ ...rules, largeFileBytes: Number(event.target.value) })}
+              >
+                {LARGE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>≥ {option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>File cũ</span>
+              <select
+                value={rules.oldFileDays}
+                onChange={(event) => onRulesChange({ ...rules, oldFileDays: Number(event.target.value) })}
+              >
+                {OLD_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>≥ {option.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label className="search-box">
+            <Search size={17} aria-hidden="true" />
+            <span className="sr-only">Tìm theo tên file</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm theo tên" />
+          </label>
+        </div>
       </div>
 
       <div className="file-table" role="table" aria-label="Danh sách file đề xuất">
@@ -85,7 +140,7 @@ export function FileTable({ files, selectedIds, cleanupBlocked, oldFileDays, onT
           </div>
           <div role="columnheader">Tên file</div>
           <div role="columnheader">Lý do</div>
-          <div role="columnheader">Hoạt động</div>
+          <div role="columnheader">Lần hoạt động cuối</div>
           <div role="columnheader" className="align-right">Dung lượng</div>
         </div>
 
@@ -93,7 +148,7 @@ export function FileTable({ files, selectedIds, cleanupBlocked, oldFileDays, onT
           <div className="empty-state">
             <ShieldCheck size={30} />
             <strong>Không tìm thấy file phù hợp</strong>
-            <span>Thử đổi nhóm hoặc từ khóa tìm kiếm.</span>
+            <span>Thử đổi nhóm, ngưỡng hoặc từ khóa tìm kiếm.</span>
           </div>
         ) : visibleFiles.map((file) => {
           const disabled = disabledReason(file, cleanupBlocked);
@@ -131,7 +186,7 @@ export function FileTable({ files, selectedIds, cleanupBlocked, oldFileDays, onT
                   <span className="protection-label" title={disabled}>
                     <LockKeyhole size={14} /> {file.duplicateRole === 'keep' ? 'Giữ lại' : 'Được bảo vệ'}
                   </span>
-                ) : reasonLabel(file, oldFileDays)}
+                ) : reasonLabel(file, rules.oldFileDays)}
               </div>
               <div role="cell" className="date-cell">{formatDate(file.viewedByMeTime || file.modifiedTime)}</div>
               <div role="cell" className="size-cell align-right">{formatBytes(file.bytes)}</div>
