@@ -72,6 +72,7 @@ export function CleanDriveApp() {
   const [snapshot, setSnapshot] = useState<DriveSnapshot>(demoSnapshot);
   const [mode, setMode] = useState<'cleanup' | 'projects'>('cleanup');
   const [isSavingProject, setIsSavingProject] = useState(false);
+  const [projectFilterId, setProjectFilterId] = useState<string>();
   const [rules, setRules] = useState<CleanupRules>(loadRules);
   const [isDemo, setIsDemo] = useState(true);
   const [activeCategory, setActiveCategory] = useState<CategoryId>('overview');
@@ -87,10 +88,11 @@ export function CleanDriveApp() {
   const [isRestoring, setIsRestoring] = useState(false);
 
   const classifiedFiles = useMemo(() => classifyFiles(snapshot.files, rules), [snapshot.files, rules]);
-  const visibleFiles = useMemo(
-    () => filterByCategory(classifiedFiles, activeCategory).sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0)),
-    [classifiedFiles, activeCategory],
-  );
+  const visibleFiles = useMemo(() => {
+    const base = filterByCategory(classifiedFiles, activeCategory);
+    const scoped = projectFilterId ? base.filter((file) => file.project?.folderId === projectFilterId) : base;
+    return scoped.sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0));
+  }, [classifiedFiles, activeCategory, projectFilterId]);
 
   const cleanupBlocked = !isDemo && snapshot.incompleteSearch;
   const selectedFiles = classifiedFiles.filter((file) => selectedIds.has(file.id) && isCleanupCandidate(file));
@@ -98,6 +100,20 @@ export function CleanDriveApp() {
   const potentialSavings = totalBytes(suggestionFiles);
   const mediaFootprint = useMemo(() => storageByKind(classifiedFiles).slice(0, 4), [classifiedFiles]);
   const projectStorage = useMemo(() => buildProjectStorage(snapshot.files), [snapshot.files]);
+  const projectCleanup = useMemo(() => {
+    const grouped = new Map<string, { count: number; bytes: bigint }>();
+    for (const file of classifiedFiles) {
+      if (!file.project || !isCleanupCandidate(file)) continue;
+      const current = grouped.get(file.project.folderId) ?? { count: 0, bytes: 0n };
+      current.count += 1;
+      current.bytes += file.bytes;
+      grouped.set(file.project.folderId, current);
+    }
+    return grouped;
+  }, [classifiedFiles]);
+  const filteredProject = projectFilterId
+    ? projectStorage.projects.find((entry) => entry.folder.id === projectFilterId)
+    : undefined;
 
   const limit = snapshot.quota.limit ? toBytes(snapshot.quota.limit) : undefined;
   const usage = toBytes(snapshot.quota.usage || snapshot.quota.usageInDrive);
@@ -248,6 +264,15 @@ export function CleanDriveApp() {
   };
 
 
+
+  const handleReviewProject = (folderId: string) => {
+    setProjectFilterId(folderId);
+    setActiveCategory('overview');
+    setSelectedIds(new Set());
+    setMode('cleanup');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleSaveProject = async (folderId: string, metadata: ProjectMetadataInput) => {
     const appProperties = projectAppProperties(metadata);
     setIsSavingProject(true);
@@ -385,6 +410,16 @@ export function CleanDriveApp() {
 
             <CleanupRulesBar rules={rules} onChange={updateRules} />
 
+            {filteredProject ? (
+              <div className="project-filter-banner">
+                <div>
+                  <FolderKanban size={17} />
+                  <span>Đang xem đề xuất của <strong>{filteredProject.name}</strong>{filteredProject.client ? ` · ${filteredProject.client}` : ''}</span>
+                </div>
+                <button type="button" onClick={() => { setProjectFilterId(undefined); setSelectedIds(new Set()); }}>Xem tất cả</button>
+              </div>
+            ) : null}
+
             <section className="work-grid">
               <aside className="left-rail">
                 <div className="rail-label">Nhóm đề xuất</div>
@@ -431,8 +466,10 @@ export function CleanDriveApp() {
             entries={projectStorage.projects}
             unclassifiedBytes={projectStorage.unclassifiedBytes}
             unclassifiedCount={projectStorage.unclassifiedCount}
+            cleanupByProject={projectCleanup}
             isSaving={isSavingProject}
             onSave={handleSaveProject}
+            onReview={handleReviewProject}
           />
         )}
       </main>

@@ -7,8 +7,10 @@ type ProjectStoragePanelProps = {
   entries: ProjectStorageEntry[];
   unclassifiedBytes: bigint;
   unclassifiedCount: number;
+  cleanupByProject: Map<string, { count: number; bytes: bigint }>;
   isSaving?: boolean;
   onSave: (folderId: string, metadata: ProjectMetadataInput) => Promise<void>;
+  onReview: (folderId: string) => void;
 };
 
 const statusLabel: Record<ProjectStatus, string> = {
@@ -27,8 +29,10 @@ export function ProjectStoragePanel({
   entries,
   unclassifiedBytes,
   unclassifiedCount,
+  cleanupByProject,
   isSaving,
   onSave,
+  onReview,
 }: ProjectStoragePanelProps) {
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string>();
@@ -97,6 +101,8 @@ export function ProjectStoragePanel({
         <div className="project-list">
           {filtered.map((entry) => {
             const editing = editingId === entry.folder.id;
+            const cleanup = cleanupByProject.get(entry.folder.id);
+            const canReview = entry.tagged && entry.status !== 'active' && cleanup && cleanup.count > 0;
             const StatusIcon = entry.status ? statusIcon[entry.status] : FolderKanban;
             return (
               <article className={`project-row${entry.tagged ? ' is-tagged' : ''}`} key={entry.folder.id}>
@@ -110,7 +116,7 @@ export function ProjectStoragePanel({
 
                 <div className="project-row__metric">
                   <strong>{formatBytes(entry.bytes)}</strong>
-                  <span>{entry.fileCount.toLocaleString('vi-VN')} file</span>
+                  <span>{entry.fileCount.toLocaleString('vi-VN')} file{cleanup && cleanup.count > 0 ? ` · ${cleanup.count} đề xuất` : ''}</span>
                 </div>
 
                 <div className="project-row__status">
@@ -121,9 +127,16 @@ export function ProjectStoragePanel({
                   )}
                 </div>
 
-                <button className="project-edit" type="button" onClick={() => startEdit(entry)}>
-                  <Pencil size={15} /> {entry.tagged ? 'Sửa' : 'Thiết lập'}
-                </button>
+                <div className="project-row__actions">
+                  {canReview ? (
+                    <button className="project-review" type="button" onClick={() => onReview(entry.folder.id)}>
+                      Xem dọn · {formatBytes(cleanup.bytes)}
+                    </button>
+                  ) : null}
+                  <button className="project-edit" type="button" onClick={() => startEdit(entry)}>
+                    <Pencil size={15} /> {entry.tagged ? 'Sửa' : 'Thiết lập'}
+                  </button>
+                </div>
 
                 {editing ? (
                   <div className="project-editor">

@@ -537,3 +537,31 @@ a.hub-card:hover {
   .project-editor { grid-template-columns:1fr; }
   .project-editor__actions { grid-column:auto; }
 }
+
+.project-filter-banner {
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  margin:0 0 14px; padding:11px 13px;
+  color:#3f557e; border:1px solid #d9e4fb; border-radius:12px; background:#f4f7ff;
+  font-size:.72rem;
+}
+.project-filter-banner > div { display:flex; align-items:center; gap:8px; min-width:0; }
+.project-filter-banner strong { color:#264caa; }
+.project-filter-banner button {
+  flex:0 0 auto; padding:0; color:#315bb8; border:0; background:transparent;
+  font-size:.68rem; font-weight:760;
+}
+.project-row__actions { display:flex; justify-content:flex-end; gap:6px; }
+.project-review {
+  display:inline-flex; align-items:center; justify-content:center;
+  min-height:34px; padding:0 9px;
+  color:#087456; border:1px solid #cfe9de; border-radius:9px; background:#f0faf5;
+  font-size:.64rem; font-weight:760; white-space:nowrap;
+}
+.project-review:hover { background:#e6f6ee; }
+@media (max-width: 900px) {
+  .project-row__actions { grid-column:3; }
+}
+@media (max-width: 680px) {
+  .project-row__actions { grid-column:2; grid-row:1 / span 3; flex-direction:column; align-self:center; }
+  .project-filter-banner { align-items:flex-start; }
+}
