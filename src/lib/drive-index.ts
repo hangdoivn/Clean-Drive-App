@@ -4,6 +4,7 @@ const DB_NAME = 'hangdoi-clean-drive';
 const DB_VERSION = 1;
 const STORE_NAME = 'drive-snapshots';
 const LAST_EMAIL_KEY = 'hangdoi-clean-drive-last-email';
+const LEGACY_MOCK_EMAIL = 'ban@example.com';
 
 type StoredSnapshot = DriveSnapshot & { email: string };
 
@@ -47,6 +48,19 @@ export async function loadLastDriveIndex(): Promise<DriveSnapshot | undefined> {
     request.onsuccess = () => resolve(request.result as DriveSnapshot | undefined);
     request.onerror = () => reject(request.error ?? new Error('Không đọc được metadata cache.'));
   });
+  if (snapshot?.email === LEGACY_MOCK_EMAIL) {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete(LEGACY_MOCK_EMAIL);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Không xóa được dữ liệu cache cũ.'));
+      tx.onabort = () => reject(tx.error ?? new Error('Xóa dữ liệu cache cũ bị hủy.'));
+    });
+    window.localStorage.removeItem(LAST_EMAIL_KEY);
+    db.close();
+    return undefined;
+  }
+
   db.close();
   return snapshot;
 }
