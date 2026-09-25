@@ -1,4 +1,14 @@
-# Clean Drive
+# Hang Đôi Apps
+
+App hub cho hệ thống nội bộ tại `app.hangdoistudio.vn`.
+
+## Routes
+
+- `/` — Hang Đôi Apps Hub
+- `/clean-drive` — Clean Drive
+- Các app tiếp theo được thêm như module độc lập và đăng ký tại Hub.
+
+## Clean Drive
 
 Clean Drive là ý tưởng ứng dụng giúp người dùng hiểu thứ gì đang chiếm dung lượng Google Drive, tìm file trùng/lâu không dùng và dọn chúng theo cách an toàn.
 
