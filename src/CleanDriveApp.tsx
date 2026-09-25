@@ -13,6 +13,7 @@ import {
   FolderKanban,
   WandSparkles,
   ShieldAlert,
+  Clock3,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { BrandMark } from './components/BrandMark';
@@ -22,6 +23,7 @@ import { CleanupRulesBar } from './components/CleanupRulesBar';
 import { ProjectStoragePanel } from './components/ProjectStoragePanel';
 import { CoreIntegrationPanel } from './components/CoreIntegrationPanel';
 import { AccessPanel } from './components/AccessPanel';
+import { ActivityPanel } from './components/ActivityPanel';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
 import { StatCard } from './components/StatCard';
@@ -35,6 +37,7 @@ import {
 } from './lib/classify';
 import { buildProjectStorage, projectAppProperties } from './lib/projects';
 import { applyCoreProjectOverlay, loadCoreContext } from './lib/hangdoi-core';
+import { appendActivityLog, loadActivityLog } from './lib/activity-log';
 import { demoSnapshot } from './lib/demo-data';
 import { loadLastDriveIndex, saveDriveIndex } from './lib/drive-index';
 import { formatBytes } from './lib/format';
@@ -48,6 +51,7 @@ import {
 } from './lib/google-drive';
 import type {
   AccessAuditResult,
+  ActivityLogEntry,
   CategoryId,
   CoreProject,
   CoreSession,
@@ -93,7 +97,7 @@ function toBytes(value?: string): bigint {
 
 export function CleanDriveApp() {
   const [snapshot, setSnapshot] = useState<DriveSnapshot>(demoSnapshot);
-  const [mode, setMode] = useState<'cleanup' | 'projects' | 'access'>('cleanup');
+  const [mode, setMode] = useState<'cleanup' | 'projects' | 'access' | 'activity'>('cleanup');
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState<string>();
   const [rules, setRules] = useState<CleanupRules>(loadRules);
@@ -119,6 +123,7 @@ export function CleanDriveApp() {
   const [coreProjects, setCoreProjects] = useState<CoreProject[]>([]);
   const [coreState, setCoreState] = useState<'idle' | 'loading' | 'connected' | 'error'>('idle');
   const [coreError, setCoreError] = useState<string>();
+  const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>(loadActivityLog);
 
 
   useEffect(() => {
@@ -201,6 +206,10 @@ export function CleanDriveApp() {
     ? Math.max(0, Math.min(100, Number((bytes * 100n) / limit)))
     : 0;
 
+  const recordActivity = (entry: Omit<ActivityLogEntry, 'id' | 'createdAt'>) => {
+    setActivityLog(appendActivityLog(entry));
+  };
+
   const updateRules = (nextRules: CleanupRules) => {
     setRules(nextRules);
     setSelectedIds(new Set());
@@ -226,6 +235,14 @@ export function CleanDriveApp() {
           ? `Đồng bộ nhanh · ${result.changesApplied.toLocaleString('vi-VN')} thay đổi`
           : `Quét toàn bộ · ${result.snapshot.files.length.toLocaleString('vi-VN')} file`
       );
+      recordActivity({
+        type: 'sync',
+        title: result.mode === 'incremental' ? 'Đồng bộ thay đổi Drive' : 'Quét toàn bộ Drive',
+        detail: result.mode === 'incremental'
+          ? `${result.changesApplied.toLocaleString('vi-VN')} thay đổi được áp dụng vào metadata index.`
+          : `${result.snapshot.files.length.toLocaleString('vi-VN')} file được index lại.`,
+        count: result.mode === 'incremental' ? result.changesApplied : result.snapshot.files.length,
+      });
       saveDriveIndex(result.snapshot).catch(() => undefined);
 
       if (result.snapshot.incompleteSearch) {
@@ -290,6 +307,13 @@ export function CleanDriveApp() {
       }));
       setLastTrashBatch(safeSelection);
       setCleanResult({ succeeded: safeSelection.length, failed: 0 });
+      recordActivity({
+        type: 'cleanup',
+        title: 'Dọn dữ liệu mô phỏng',
+        detail: 'Thao tác demo — không thay đổi Google Drive.',
+        count: safeSelection.length,
+        bytes: safeSelection.reduce((sum, file) => sum + file.bytes, 0n).toString(),
+      });
       setSelectedIds(new Set());
       setIsCleaning(false);
       return;
@@ -305,6 +329,17 @@ export function CleanDriveApp() {
       }));
       setLastTrashBatch(succeededFiles);
       setCleanResult({ succeeded: result.succeeded.length, failed: result.failed.length });
+      if (result.succeeded.length) {
+        recordActivity({
+          type: 'cleanup',
+          title: 'Đã đưa file vào thùng rác',
+          detail: result.failed.length
+            ? `${result.failed.length} file lỗi và chưa bị thay đổi.`
+            : 'Tất cả file đã chọn được xử lý thành công.',
+          count: result.succeeded.length,
+          bytes: succeededFiles.reduce((sum, file) => sum + file.bytes, 0n).toString(),
+        });
+      }
       setSelectedIds(new Set(result.failed.map((item) => item.id)));
       if (result.failed.length) setMessage(`${result.failed.length} file chưa thể đưa vào thùng rác. Bạn có thể thử lại.`);
     } catch (error) {
@@ -321,6 +356,12 @@ export function CleanDriveApp() {
 
     if (isDemo) {
       setSnapshot((current) => ({ ...current, files: [...current.files, ...lastTrashBatch] }));
+      recordActivity({
+        type: 'restore',
+        title: 'Khôi phục dữ liệu mô phỏng',
+        detail: 'Thao tác demo — không thay đổi Google Drive.',
+        count: lastTrashBatch.length,
+      });
       setLastTrashBatch([]);
       setCleanResult(undefined);
       setIsRestoring(false);
@@ -337,6 +378,14 @@ export function CleanDriveApp() {
       }));
       setLastTrashBatch(lastTrashBatch.filter((file) => !restoredIds.has(file.id)));
       setCleanResult(undefined);
+      if (result.succeeded.length) {
+        recordActivity({
+          type: 'restore',
+          title: 'Đã khôi phục file khỏi thùng rác',
+          detail: result.failed.length ? `${result.failed.length} file chưa khôi phục được.` : 'Khôi phục thành công.',
+          count: result.succeeded.length,
+        });
+      }
       if (result.failed.length) {
         setMessage(`${result.failed.length} file chưa khôi phục được. Clean giữ nút khôi phục để bạn thử lại.`);
       }
@@ -399,6 +448,12 @@ export function CleanDriveApp() {
     setMessage(undefined);
     try {
       await removeFilePermission(folderId, permission.id);
+      recordActivity({
+        type: 'permission',
+        title: 'Đã gỡ quyền truy cập project',
+        detail: permission.emailAddress || permission.domain || permission.type,
+        count: 1,
+      });
       setAccessAudits((current) => {
         const audit = current[folderId];
         if (!audit) return current;
@@ -444,6 +499,12 @@ export function CleanDriveApp() {
             : file
         ),
       }));
+      recordActivity({
+        type: 'project',
+        title: 'Đã cập nhật metadata project',
+        detail: `${metadata.name} · ${metadata.client || 'Không ghi khách hàng'} · ${metadata.status}`,
+        count: 1,
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Không thể lưu metadata project.');
       throw error;
@@ -502,6 +563,9 @@ export function CleanDriveApp() {
           </button>
           <button type="button" className={mode === 'access' ? 'is-active' : ''} onClick={() => setMode('access')}>
             <ShieldAlert size={16} /> Quyền truy cập
+          </button>
+          <button type="button" className={mode === 'activity' ? 'is-active' : ''} onClick={() => setMode('activity')}>
+            <Clock3 size={16} /> Nhật ký
           </button>
         </nav>
 
@@ -649,7 +713,7 @@ export function CleanDriveApp() {
               onReview={handleReviewProject}
             />
           </>
-        ) : (
+        ) : mode === 'access' ? (
           <AccessPanel
             projects={projectStorage.projects}
             audits={accessAudits}
@@ -661,6 +725,8 @@ export function CleanDriveApp() {
             onAudit={handleAuditAccess}
             onRevoke={handleRevokePermission}
           />
+        ) : (
+          <ActivityPanel entries={activityLog} />
         )}
       </main>
 

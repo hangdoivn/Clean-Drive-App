@@ -136,3 +136,16 @@ export type CoreSession = {
   refreshToken: string;
   user: CoreSessionUser;
 };
+
+
+export type ActivityLogType = 'sync' | 'cleanup' | 'restore' | 'project' | 'permission';
+
+export type ActivityLogEntry = {
+  id: string;
+  type: ActivityLogType;
+  createdAt: string;
+  title: string;
+  detail?: string;
+  count?: number;
+  bytes?: string;
+};
