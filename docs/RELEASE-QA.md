@@ -1,6 +1,6 @@
 # Clean Drive v1.0 Release QA
 
-Status target: `1.0.0-rc.1`
+Status target: `1.0.0-rc.2`
 
 Clean Drive is considered ready for `v1.0.0` only after automated CI passes and the real-Drive smoke checklist below is completed on the Hang Đôi Google Drive account.
 
@@ -31,7 +31,7 @@ Run these in order using a disposable test folder/project where a write action i
 - [ ] Open `/clean-drive` and connect the intended Google account.
 - [ ] Complete one full scan successfully.
 - [ ] Hard reload the page.
-- [ ] Cached metadata appears without flashing demo metrics.
+- [ ] Cached metadata appears without showing any placeholder metrics.
 - [ ] Write actions remain locked until Drive is reconnected.
 - [ ] Click **Kết nối lại Drive** and confirm incremental sync returns to **Drive đã đồng bộ**.
 
