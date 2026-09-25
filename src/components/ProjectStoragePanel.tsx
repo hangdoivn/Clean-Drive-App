@@ -1,8 +1,9 @@
 import { Archive, Check, FolderKanban, PackageCheck, Pencil, Save, Search, ShieldCheck, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatBytes } from '../lib/format';
-import type { ArchiveProjectSummary, CoreProject, ProjectMetadataInput, ProjectStatus, ProjectStorageEntry } from '../types';
+import type { ArchiveProjectSummary, CoreProject, ProjectMetadataInput, ProjectStatus, ProjectStorageEntry, RetentionPolicyId } from '../types';
 import { mapCoreProjectStatus } from '../lib/hangdoi-core';
+import { RETENTION_POLICIES } from '../lib/production';
 
 type ProjectStoragePanelProps = {
   entries: ProjectStorageEntry[];
@@ -14,7 +15,6 @@ type ProjectStoragePanelProps = {
   coreConnected?: boolean;
   isSaving?: boolean;
   onSave: (folderId: string, metadata: ProjectMetadataInput) => Promise<void>;
-  onReview: (folderId: string) => void;
   onOpenArchive: (folderId: string) => void;
 };
 
@@ -40,12 +40,17 @@ export function ProjectStoragePanel({
   coreConnected,
   isSaving,
   onSave,
-  onReview,
   onOpenArchive,
 }: ProjectStoragePanelProps) {
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string>();
-  const [draft, setDraft] = useState<ProjectMetadataInput>({ name: '', client: '', status: 'active', coreProjectId: undefined });
+  const [draft, setDraft] = useState<ProjectMetadataInput>({
+    name: '',
+    client: '',
+    status: 'active',
+    coreProjectId: undefined,
+    retentionPolicyId: 'internal',
+  });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('vi');
@@ -64,6 +69,7 @@ export function ProjectStoragePanel({
       client: entry.client || '',
       status: entry.status || 'active',
       coreProjectId: entry.coreProjectId,
+      retentionPolicyId: entry.retentionPolicyId || 'internal',
     });
   };
 
@@ -121,7 +127,11 @@ export function ProjectStoragePanel({
                   <span className="project-row__icon"><StatusIcon size={19} /></span>
                   <div className="project-row__title">
                     <strong>{entry.name}</strong>
-                    <span>{entry.client || entry.folder.name}{entry.coreProjectId ? ' · Project Core' : ''}</span>
+                    <span>
+                      {entry.client || entry.folder.name}
+                      {entry.coreProjectId ? ' · Project Core' : ''}
+                      {entry.tagged ? ` · ${RETENTION_POLICIES[entry.retentionPolicyId || 'internal'].label}` : ''}
+                    </span>
                   </div>
                 </div>
 
@@ -168,6 +178,7 @@ export function ProjectStoragePanel({
                               name: project.name,
                               client: project.client?.companyName || '',
                               status: mapCoreProjectStatus(project.currentStatus || project.status),
+                              retentionPolicyId: draft.retentionPolicyId || 'internal',
                             });
                           }}
                         >
@@ -187,6 +198,17 @@ export function ProjectStoragePanel({
                     <label>
                       <span>Khách hàng</span>
                       <input value={draft.client} onChange={(event) => setDraft({ ...draft, client: event.target.value })} placeholder="VD: Akimitsu" />
+                    </label>
+                    <label>
+                      <span>Retention</span>
+                      <select
+                        value={draft.retentionPolicyId || 'internal'}
+                        onChange={(event) => setDraft({ ...draft, retentionPolicyId: event.target.value as RetentionPolicyId })}
+                      >
+                        {Object.values(RETENTION_POLICIES).map((policy) => (
+                          <option key={policy.id} value={policy.id}>{policy.label}</option>
+                        ))}
+                      </select>
                     </label>
                     <label>
                       <span>Trạng thái</span>

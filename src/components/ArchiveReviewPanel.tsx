@@ -1,6 +1,7 @@
 import { Archive, ArrowRight, CheckCircle2, Eye, ShieldCheck, X } from 'lucide-react';
 import { formatBytes } from '../lib/format';
 import type { ArchiveProjectSummary, ProductionRole, ProjectStorageEntry } from '../types';
+import { getRetentionPolicy } from '../lib/production';
 
 type Props = {
   project: ProjectStorageEntry;
@@ -18,13 +19,14 @@ const roleLabel: Record<ProductionRole, string> = {
 };
 
 export function ArchiveReviewPanel({ project, summary, onClose, onReviewSafe }: Props) {
+  const policy = getRetentionPolicy(summary.retentionPolicyId);
   return (
     <section className="archive-review">
       <div className="archive-review__head">
         <div>
           <p className="eyebrow"><Archive size={14} /> Archive review</p>
           <h2>{project.name}</h2>
-          <p>{project.client || project.folder.name} · Preview chỉ dựa trên metadata, không đọc nội dung file.</p>
+          <p>{project.client || project.folder.name} · {policy.label} · Preview chỉ dựa trên metadata, không đọc nội dung file.</p>
         </div>
         <button type="button" className="archive-close" onClick={onClose} aria-label="Đóng archive review"><X size={18} /></button>
       </div>
@@ -59,8 +61,8 @@ export function ArchiveReviewPanel({ project, summary, onClose, onReviewSafe }: 
 
       <div className="archive-review__policy">
         <div><ShieldCheck size={16} /><span><strong>Final/Master</strong> được giữ mặc định.</span></div>
-        <div><Eye size={16} /><span><strong>Source/Working</strong> chỉ đưa vào danh sách review, không tính là safe recoverable.</span></div>
-        <div><CheckCircle2 size={16} /><span><strong>Temporary/Proxy + duplicate dư</strong> mới được tính vào cleanup an toàn mặc định.</span></div>
+        <div><Eye size={16} /><span><strong>Source</strong> review sau {Math.round(policy.sourceReviewDays / 30)} tháng · <strong>Working</strong> sau {Math.round(policy.workingReviewDays / 30)} tháng.</span></div>
+        <div><CheckCircle2 size={16} /><span><strong>Temporary/Proxy</strong> từ {policy.temporaryCleanupDays} ngày + duplicate dư mới vào safe recoverable.</span></div>
       </div>
 
       {summary.reviewCount > 0 ? (

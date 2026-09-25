@@ -39,7 +39,7 @@ import {
 import { buildProjectStorage, projectAppProperties } from './lib/projects';
 import { applyCoreProjectOverlay, loadCoreContext } from './lib/hangdoi-core';
 import { appendActivityLog, loadActivityLog } from './lib/activity-log';
-import { buildArchiveSummary, isArchiveSafeCandidate } from './lib/production';
+import { buildArchiveSummary, getRetentionPolicy, isArchiveSafeCandidate } from './lib/production';
 import { demoSnapshot } from './lib/demo-data';
 import { loadLastDriveIndex, saveDriveIndex } from './lib/drive-index';
 import { formatBytes } from './lib/format';
@@ -200,7 +200,9 @@ export function CleanDriveApp() {
   const visibleFiles = useMemo(() => {
     const base = filterByCategory(classifiedFiles, activeCategory);
     const scoped = projectFilterId ? base.filter((file) => file.project?.folderId === projectFilterId) : base;
-    const archiveScoped = archiveSafeOnly ? scoped.filter(isArchiveSafeCandidate) : scoped;
+    const archiveScoped = archiveSafeOnly
+      ? scoped.filter((file) => isArchiveSafeCandidate(file, getRetentionPolicy(file.project?.retentionPolicyId)))
+      : scoped;
     return archiveScoped.sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0));
   }, [classifiedFiles, activeCategory, projectFilterId, archiveSafeOnly]);
 
@@ -230,7 +232,7 @@ export function CleanDriveApp() {
     const map = new Map<string, ReturnType<typeof buildArchiveSummary>>();
     for (const entry of projectStorage.projects) {
       if (!entry.tagged || entry.status === 'active') continue;
-      map.set(entry.folder.id, buildArchiveSummary(classifiedFiles, entry.folder.id));
+      map.set(entry.folder.id, buildArchiveSummary(classifiedFiles, entry.folder.id, entry.retentionPolicyId));
     }
     return map;
   }, [projectStorage.projects, classifiedFiles]);
@@ -826,7 +828,6 @@ export function CleanDriveApp() {
               coreConnected={coreState === 'connected'}
               isSaving={isSavingProject}
               onSave={handleSaveProject}
-              onReview={handleReviewProject}
               onOpenArchive={setArchiveProjectId}
             />
           </>

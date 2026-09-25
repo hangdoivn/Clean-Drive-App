@@ -1326,3 +1326,9 @@ a.hub-card:hover {
   .archive-review__actions .primary-action,
   .archive-review__actions .secondary-action { width:100%; }
 }
+
+.project-editor { grid-template-columns:1.05fr 1fr 1fr 155px 155px auto; }
+@media (max-width:1200px) {
+  .project-editor { grid-template-columns:1fr 1fr 1fr; }
+  .project-editor__actions { grid-column:1/-1; }
+}

@@ -1,10 +1,11 @@
-import type { DriveFile, ProjectMetadataInput, ProjectStatus, ProjectStorageEntry } from '../types';
+import type { DriveFile, ProjectMetadataInput, ProjectStatus, ProjectStorageEntry, RetentionPolicyId } from '../types';
 
 export const PROJECT_PROP = 'hangdoiProject';
 export const PROJECT_NAME_PROP = 'hangdoiProjectName';
 export const PROJECT_CLIENT_PROP = 'hangdoiClient';
 export const PROJECT_STATUS_PROP = 'hangdoiStatus';
 export const PROJECT_ID_PROP = 'hangdoiProjectId';
+export const RETENTION_POLICY_PROP = 'hangdoiRetentionPolicy';
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
@@ -15,6 +16,13 @@ function bytesOf(file: DriveFile): bigint {
 export function readProjectStatus(file: DriveFile): ProjectStatus | undefined {
   const value = file.appProperties?.[PROJECT_STATUS_PROP];
   return value === 'active' || value === 'delivered' || value === 'archive' ? value : undefined;
+}
+
+export function readRetentionPolicyId(file: DriveFile): RetentionPolicyId | undefined {
+  const value = file.appProperties?.[RETENTION_POLICY_PROP];
+  return value === 'hospitality' || value === 'fnb-retainer' || value === 'event' || value === 'internal'
+    ? value
+    : undefined;
 }
 
 export function isProjectFolder(file: DriveFile): boolean {
@@ -28,6 +36,7 @@ export function projectMetadataFromFolder(file: DriveFile) {
     client: file.appProperties?.[PROJECT_CLIENT_PROP],
     status: readProjectStatus(file),
     coreProjectId: file.appProperties?.[PROJECT_ID_PROP],
+    retentionPolicyId: readRetentionPolicyId(file),
   };
 }
 
@@ -91,6 +100,7 @@ export function buildProjectStorage(files: DriveFile[]): {
       client: meta.client,
       status: meta.status,
       coreProjectId: meta.coreProjectId,
+      retentionPolicyId: meta.retentionPolicyId,
     });
   }
 
@@ -115,6 +125,7 @@ export function findProjectContext(file: DriveFile, byId: Map<string, DriveFile>
         client: current.appProperties?.[PROJECT_CLIENT_PROP],
         status: readProjectStatus(current) ?? 'active',
         coreProjectId: current.appProperties?.[PROJECT_ID_PROP],
+        retentionPolicyId: readRetentionPolicyId(current),
       };
     }
     const parentId: string | undefined = current.parents?.[0];
@@ -132,5 +143,6 @@ export function projectAppProperties(input: ProjectMetadataInput): Record<string
     [PROJECT_STATUS_PROP]: input.status,
   };
   if (input.coreProjectId?.trim()) properties[PROJECT_ID_PROP] = input.coreProjectId.trim();
+  if (input.retentionPolicyId) properties[RETENTION_POLICY_PROP] = input.retentionPolicyId;
   return properties;
 }

@@ -41,6 +41,16 @@ export type DuplicateRole = 'keep' | 'remove';
 export type ProjectStatus = 'active' | 'delivered' | 'archive';
 
 export type ProductionRole = 'source' | 'working' | 'final' | 'temporary' | 'other';
+export type RetentionPolicyId = 'hospitality' | 'fnb-retainer' | 'event' | 'internal';
+
+export type RetentionPolicy = {
+  id: RetentionPolicyId;
+  label: string;
+  description: string;
+  sourceReviewDays: number;
+  workingReviewDays: number;
+  temporaryCleanupDays: number;
+};
 
 export type FileKind =
   | 'video'
@@ -64,6 +74,7 @@ export type ProjectContext = {
   client?: string;
   status: ProjectStatus;
   coreProjectId?: string;
+  retentionPolicyId?: RetentionPolicyId;
 };
 
 export type ClassifiedFile = DriveFile & {
@@ -89,6 +100,7 @@ export type ProjectStorageEntry = {
   client?: string;
   status?: ProjectStatus;
   coreProjectId?: string;
+  retentionPolicyId?: RetentionPolicyId;
 };
 
 export type ProjectMetadataInput = {
@@ -96,6 +108,7 @@ export type ProjectMetadataInput = {
   client: string;
   status: ProjectStatus;
   coreProjectId?: string;
+  retentionPolicyId?: RetentionPolicyId;
 };
 
 
@@ -163,6 +176,7 @@ export type ProductionRoleSummary = {
 
 export type ArchiveProjectSummary = {
   folderId: string;
+  retentionPolicyId: RetentionPolicyId;
   totalBytes: bigint;
   totalFiles: number;
   safeRecoverableBytes: bigint;

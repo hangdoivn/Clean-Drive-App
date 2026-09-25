@@ -5,9 +5,64 @@ import type {
   FileKind,
   ProductionRole,
   ProductionRoleSummary,
+  RetentionPolicy,
+  RetentionPolicyId,
 } from '../types';
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
+
+export const RETENTION_POLICIES: Record<RetentionPolicyId, RetentionPolicy> = {
+  hospitality: {
+    id: 'hospitality',
+    label: 'Hospitality',
+    description: 'Giữ source dài hạn; working review sau 1 năm; temporary review sớm.',
+    sourceReviewDays: 1095,
+    workingReviewDays: 365,
+    temporaryCleanupDays: 30,
+  },
+  'fnb-retainer': {
+    id: 'fnb-retainer',
+    label: 'F&B Retainer',
+    description: 'Rolling asset theo campaign; final giữ, source/working review sớm hơn.',
+    sourceReviewDays: 365,
+    workingReviewDays: 180,
+    temporaryCleanupDays: 30,
+  },
+  event: {
+    id: 'event',
+    label: 'Event',
+    description: 'Vòng đời ngắn hơn sau bàn giao; proxy/temp có thể review sớm.',
+    sourceReviewDays: 365,
+    workingReviewDays: 90,
+    temporaryCleanupDays: 14,
+  },
+  internal: {
+    id: 'internal',
+    label: 'Internal / General',
+    description: 'Preset cân bằng cho project nội bộ hoặc chưa phân loại.',
+    sourceReviewDays: 730,
+    workingReviewDays: 365,
+    temporaryCleanupDays: 30,
+  },
+};
+
+export function getRetentionPolicy(id?: RetentionPolicyId): RetentionPolicy {
+  return RETENTION_POLICIES[id ?? 'internal'];
+}
+
+function lastActivityTime(file: ClassifiedFile): number | undefined {
+  const viewed = file.viewedByMeTime ? new Date(file.viewedByMeTime).getTime() : 0;
+  const modified = file.modifiedTime ? new Date(file.modifiedTime).getTime() : 0;
+  const value = Math.max(viewed, modified);
+  return value > 0 ? value : undefined;
+}
+
+function olderThanDays(file: ClassifiedFile, days: number): boolean {
+  const activity = lastActivityTime(file);
+  if (!activity) return false;
+  return activity < Date.now() - days * 24 * 60 * 60 * 1000;
+}
+
 
 const FINAL_MARKERS = [
   'final', 'master', 'delivery', 'deliverable', 'delivered', 'approved',
@@ -88,21 +143,33 @@ export function productionProtectionReason(role: ProductionRole): string | undef
   return undefined;
 }
 
-export function isArchiveSafeCandidate(file: ClassifiedFile): boolean {
+export function isArchiveSafeCandidate(
+  file: ClassifiedFile,
+  policy: RetentionPolicy = getRetentionPolicy(file.project?.retentionPolicyId),
+): boolean {
   if (file.protectedReason) return false;
   if (file.duplicateRole === 'keep') return false;
   if (file.duplicateRole === 'remove') return true;
-  return file.productionRole === 'temporary' && file.categories.length > 0;
+  return file.productionRole === 'temporary' && olderThanDays(file, policy.temporaryCleanupDays);
 }
 
-export function isArchiveReviewCandidate(file: ClassifiedFile): boolean {
+export function isArchiveReviewCandidate(
+  file: ClassifiedFile,
+  policy: RetentionPolicy = getRetentionPolicy(file.project?.retentionPolicyId),
+): boolean {
   if (!file.project || file.kind === 'folder') return false;
-  if (!file.categories.length) return false;
-  return file.productionRole === 'source' || file.productionRole === 'working';
+  if (file.productionRole === 'source') return olderThanDays(file, policy.sourceReviewDays);
+  if (file.productionRole === 'working') return olderThanDays(file, policy.workingReviewDays);
+  return false;
 }
 
-export function buildArchiveSummary(files: ClassifiedFile[], folderId: string): ArchiveProjectSummary {
+export function buildArchiveSummary(
+  files: ClassifiedFile[],
+  folderId: string,
+  retentionPolicyId?: RetentionPolicyId,
+): ArchiveProjectSummary {
   const projectFiles = files.filter((file) => file.project?.folderId === folderId && file.kind !== 'folder');
+  const policy = getRetentionPolicy(retentionPolicyId ?? projectFiles[0]?.project?.retentionPolicyId);
   const roleMap = new Map<ProductionRole, { bytes: bigint; count: number }>();
 
   for (const file of projectFiles) {
@@ -112,8 +179,8 @@ export function buildArchiveSummary(files: ClassifiedFile[], folderId: string): 
     roleMap.set(file.productionRole, current);
   }
 
-  const safe = projectFiles.filter(isArchiveSafeCandidate);
-  const review = projectFiles.filter(isArchiveReviewCandidate);
+  const safe = projectFiles.filter((file) => isArchiveSafeCandidate(file, policy));
+  const review = projectFiles.filter((file) => isArchiveReviewCandidate(file, policy));
   const totalBytes = projectFiles.reduce((sum, file) => sum + file.bytes, 0n);
   const safeRecoverableBytes = safe.reduce((sum, file) => sum + file.bytes, 0n);
 
@@ -126,6 +193,7 @@ export function buildArchiveSummary(files: ClassifiedFile[], folderId: string): 
 
   return {
     folderId,
+    retentionPolicyId: policy.id,
     totalBytes,
     totalFiles: projectFiles.length,
     safeRecoverableBytes,

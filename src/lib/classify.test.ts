@@ -9,7 +9,7 @@ import {
 } from './classify';
 import type { DriveFile } from '../types';
 import { buildProjectStorage, projectAppProperties } from './projects';
-import { buildArchiveSummary, classifyProductionRole, isArchiveSafeCandidate } from './production';
+import { buildArchiveSummary, classifyProductionRole, getRetentionPolicy, isArchiveSafeCandidate } from './production';
 
 const base: DriveFile = {
   id: 'a',
@@ -202,6 +202,33 @@ describe('classifyFiles', () => {
     expect(isArchiveSafeCandidate(files.find((file) => file.id === 'proxy-file')!)).toBe(true);
     expect(isArchiveSafeCandidate(files.find((file) => file.id === 'source-file')!)).toBe(false);
     expect(summary.safeRecoverableCount).toBe(1);
+  });
+
+  it('applies retention policy thresholds to temporary archive candidates', () => {
+    const project: DriveFile = {
+      id: 'policy-project',
+      name: 'Event',
+      mimeType: 'application/vnd.google-apps.folder',
+      ownedByMe: true,
+      capabilities: { canTrash: true },
+      appProperties: projectAppProperties({
+        name: 'Event',
+        client: 'Client',
+        status: 'delivered',
+        retentionPolicyId: 'event',
+      }),
+    };
+    const proxy: DriveFile = {
+      ...base,
+      id: 'recent-proxy',
+      name: 'proxy.mp4',
+      md5Checksum: undefined,
+      parents: ['policy-project'],
+      modifiedTime: new Date().toISOString(),
+    };
+    const [classified] = classifyFiles([project, proxy]).filter((file) => file.id === 'recent-proxy');
+    expect(classified.project?.retentionPolicyId).toBe('event');
+    expect(isArchiveSafeCandidate(classified, getRetentionPolicy('event'))).toBe(false);
   });
 
   it('sums int64 byte values using bigint', () => {
