@@ -1888,3 +1888,94 @@ a.hub-card:hover {
   .settings-actions { flex-direction:column; }
   .settings-actions button { width:100%; }
 }
+
+.attention-signals {
+  border-bottom:1px solid #edf0f5;
+  background:#fbfcfe;
+}
+.attention-signals__head {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 13px 7px;
+}
+.attention-signals__head strong,
+.attention-signals__head span { display:block; }
+.attention-signals__head strong { color:#344054; font-size:.66rem; }
+.attention-signals__head span { margin-top:2px; color:#929baa; font-size:.56rem; }
+.attention-signals__head b {
+  min-width:21px;
+  padding:3px 6px;
+  color:#60708b;
+  border-radius:99px;
+  background:#eef2f7;
+  text-align:center;
+  font-size:.58rem;
+}
+.attention-signals__list {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:7px;
+  padding:0 10px 10px;
+}
+.attention-signal {
+  display:grid;
+  grid-template-columns:32px minmax(0,1fr) auto;
+  align-items:center;
+  gap:8px;
+  min-height:54px;
+  padding:8px 9px;
+  text-align:left;
+  border:1px solid #e3e8ef;
+  border-radius:10px;
+  background:#fff;
+}
+.attention-signal.is-critical { border-color:#efcaca; background:#fff8f8; }
+.attention-signal.is-warning { border-color:#eadcbc; background:#fffaf2; }
+.attention-signal.is-info { border-color:#dce4f3; background:#f9fbff; }
+.attention-signal__icon {
+  display:grid;
+  place-items:center;
+  width:32px;
+  height:32px;
+  color:#64748b;
+  border-radius:9px;
+  background:#eef2f6;
+}
+.attention-signal.is-critical .attention-signal__icon { color:#a23a3a; background:#ffecec; }
+.attention-signal.is-warning .attention-signal__icon { color:#9a6a22; background:#fff0d9; }
+.attention-signal.is-info .attention-signal__icon { color:#315bb8; background:#edf3ff; }
+.attention-signal > div { min-width:0; }
+.attention-signal strong,
+.attention-signal span { display:block; }
+.attention-signal strong { color:#465166; font-size:.63rem; }
+.attention-signal span {
+  margin-top:2px;
+  overflow:hidden;
+  color:#8e98a7;
+  font-size:.56rem;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.attention-signal em {
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+  color:#667085;
+  font-size:.56rem;
+  font-style:normal;
+  font-weight:720;
+  white-space:nowrap;
+}
+.storage-health__sync {
+  display:inline-flex !important;
+  align-items:center;
+  gap:4px;
+  color:#98a1af !important;
+  font-size:.55rem !important;
+}
+@media (max-width:760px) {
+  .attention-signals__list { grid-template-columns:1fr; }
+  .attention-signal span { white-space:normal; }
+}

@@ -793,9 +793,14 @@ export function CleanDriveApp() {
               audits={accessAudits}
               unclassifiedBytes={projectStorage.unclassifiedBytes}
               unclassifiedCount={projectStorage.unclassifiedCount}
+              usagePercent={usagePercent}
+              lastSyncedAt={snapshot.lastSyncedAt}
+              isCached={isCached}
               onProjects={() => setMode('projects')}
               onAccess={() => setMode('access')}
               onArchive={(folderId) => { setArchiveProjectId(folderId); setMode('projects'); }}
+              onCleanup={() => { setMode('cleanup'); setActiveCategory('overview'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              onSync={() => { void handleScan(); }}
             />
 
             <section className="media-footprint" aria-label="Phân bổ asset">
