@@ -10,12 +10,15 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  FolderKanban,
+  WandSparkles,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { BrandMark } from './components/BrandMark';
 import { CategoryNav } from './components/CategoryNav';
 import { CleanupPanel } from './components/CleanupPanel';
 import { CleanupRulesBar } from './components/CleanupRulesBar';
+import { ProjectStoragePanel } from './components/ProjectStoragePanel';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
 import { StatCard } from './components/StatCard';
@@ -27,10 +30,11 @@ import {
   storageByKind,
   totalBytes,
 } from './lib/classify';
+import { buildProjectStorage, projectAppProperties } from './lib/projects';
 import { demoSnapshot } from './lib/demo-data';
 import { formatBytes } from './lib/format';
-import { moveFilesToTrash, restoreFilesFromTrash, scanGoogleDrive } from './lib/google-drive';
-import type { CategoryId, CleanupRules, DriveFile, DriveSnapshot, FileKind } from './types';
+import { moveFilesToTrash, restoreFilesFromTrash, scanGoogleDrive, updateProjectFolderMetadata } from './lib/google-drive';
+import type { CategoryId, CleanupRules, DriveFile, DriveSnapshot, FileKind, ProjectMetadataInput } from './types';
 
 const RULES_STORAGE_KEY = 'hangdoi-clean-drive-rules-v1';
 
@@ -66,6 +70,8 @@ function toBytes(value?: string): bigint {
 
 export function CleanDriveApp() {
   const [snapshot, setSnapshot] = useState<DriveSnapshot>(demoSnapshot);
+  const [mode, setMode] = useState<'cleanup' | 'projects'>('cleanup');
+  const [isSavingProject, setIsSavingProject] = useState(false);
   const [rules, setRules] = useState<CleanupRules>(loadRules);
   const [isDemo, setIsDemo] = useState(true);
   const [activeCategory, setActiveCategory] = useState<CategoryId>('overview');
@@ -91,6 +97,7 @@ export function CleanDriveApp() {
   const suggestionFiles = classifiedFiles.filter(isCleanupCandidate);
   const potentialSavings = totalBytes(suggestionFiles);
   const mediaFootprint = useMemo(() => storageByKind(classifiedFiles).slice(0, 4), [classifiedFiles]);
+  const projectStorage = useMemo(() => buildProjectStorage(snapshot.files), [snapshot.files]);
 
   const limit = snapshot.quota.limit ? toBytes(snapshot.quota.limit) : undefined;
   const usage = toBytes(snapshot.quota.usage || snapshot.quota.usageInDrive);
@@ -240,6 +247,29 @@ export function CleanDriveApp() {
     }
   };
 
+
+  const handleSaveProject = async (folderId: string, metadata: ProjectMetadataInput) => {
+    const appProperties = projectAppProperties(metadata);
+    setIsSavingProject(true);
+    setMessage(undefined);
+    try {
+      if (!isDemo) await updateProjectFolderMetadata(folderId, appProperties);
+      setSnapshot((current) => ({
+        ...current,
+        files: current.files.map((file) =>
+          file.id === folderId
+            ? { ...file, appProperties: { ...(file.appProperties ?? {}), ...appProperties } }
+            : file
+        ),
+      }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Không thể lưu metadata project.');
+      throw error;
+    } finally {
+      setIsSavingProject(false);
+    }
+  };
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -272,6 +302,18 @@ export function CleanDriveApp() {
           </button>
         </section>
 
+        <nav className="clean-mode-tabs" aria-label="Khu vực Clean Drive">
+          <button type="button" className={mode === 'cleanup' ? 'is-active' : ''} onClick={() => setMode('cleanup')}>
+            <WandSparkles size={16} /> Dọn dẹp
+          </button>
+          <button type="button" className={mode === 'projects' ? 'is-active' : ''} onClick={() => setMode('projects')}>
+            <FolderKanban size={16} /> Dự án
+            {projectStorage.projects.filter((entry) => entry.tagged).length > 0 ? (
+              <b>{projectStorage.projects.filter((entry) => entry.tagged).length}</b>
+            ) : null}
+          </button>
+        </nav>
+
         {message ? (
           <div className="message-banner" role="alert">
             <AlertCircle size={18} />
@@ -280,107 +322,119 @@ export function CleanDriveApp() {
           </div>
         ) : null}
 
-        <section className="dashboard-grid" aria-label="Tổng quan dung lượng">
-          <div className="storage-card">
-            <div className="storage-card__top">
-              <div>
-                <p>Dung lượng tài khoản đã dùng</p>
-                <strong>
-                  {formatBytes(usage)}
-                  <small>{limit ? ` / ${formatBytes(limit)}` : ' · quota do tổ chức quản lý'}</small>
-                </strong>
+        {mode === 'cleanup' ? (
+          <>
+            <section className="dashboard-grid" aria-label="Tổng quan dung lượng">
+              <div className="storage-card">
+                <div className="storage-card__top">
+                  <div>
+                    <p>Dung lượng tài khoản đã dùng</p>
+                    <strong>
+                      {formatBytes(usage)}
+                      <small>{limit ? ` / ${formatBytes(limit)}` : ' · quota do tổ chức quản lý'}</small>
+                    </strong>
+                  </div>
+                  <span className={usagePercent === undefined ? 'is-unbounded' : ''} style={usagePercent === undefined ? undefined : { background: `conic-gradient(var(--blue) ${usagePercent}%, #edf1f7 0)` }}>
+                    {usagePercent === undefined ? '—' : `${usagePercent}%`}
+                  </span>
+                </div>
+                <div className="storage-track" aria-label={usagePercent === undefined ? 'Không có giới hạn quota cá nhân' : `Đã dùng ${usagePercent}%`}>
+                  <span className="storage-track__files" style={{ width: `${percentOfLimit(activeDriveUsage)}%` }} />
+                  <span className="storage-track__trash" style={{ width: `${percentOfLimit(trashUsage)}%` }} />
+                  <span className="storage-track__other" style={{ width: `${percentOfLimit(otherUsage)}%` }} />
+                </div>
+                <div className="storage-legend">
+                  <span><i className="legend-files" /> Drive đang dùng {formatBytes(activeDriveUsage)}</span>
+                  <span><i className="legend-trash" /> Thùng rác {formatBytes(trashUsage)}</span>
+                  <span><i className="legend-other" /> Ngoài Drive {formatBytes(otherUsage)}</span>
+                  {limit ? <span><i className="legend-free" /> Còn trống {formatBytes(limit > usage ? limit - usage : 0n)}</span> : null}
+                </div>
               </div>
-              <span className={usagePercent === undefined ? 'is-unbounded' : ''} style={usagePercent === undefined ? undefined : { background: `conic-gradient(var(--blue) ${usagePercent}%, #edf1f7 0)` }}>
-                {usagePercent === undefined ? '—' : `${usagePercent}%`}
-              </span>
-            </div>
-            <div className="storage-track" aria-label={usagePercent === undefined ? 'Không có giới hạn quota cá nhân' : `Đã dùng ${usagePercent}%`}>
-              <span className="storage-track__files" style={{ width: `${percentOfLimit(activeDriveUsage)}%` }} />
-              <span className="storage-track__trash" style={{ width: `${percentOfLimit(trashUsage)}%` }} />
-              <span className="storage-track__other" style={{ width: `${percentOfLimit(otherUsage)}%` }} />
-            </div>
-            <div className="storage-legend">
-              <span><i className="legend-files" /> Drive đang dùng {formatBytes(activeDriveUsage)}</span>
-              <span><i className="legend-trash" /> Thùng rác {formatBytes(trashUsage)}</span>
-              <span><i className="legend-other" /> Ngoài Drive {formatBytes(otherUsage)}</span>
-              {limit ? <span><i className="legend-free" /> Còn trống {formatBytes(limit > usage ? limit - usage : 0n)}</span> : null}
-            </div>
-          </div>
 
-          <StatCard
-            label="Có thể giải phóng an toàn"
-            value={formatBytes(potentialSavings)}
-            detail={`${suggestionFiles.length} mục có thể chọn`}
-            icon={<ScanSearch size={21} />}
-            tone="green"
-          />
-          <StatCard
-            label="File đang theo dõi"
-            value={snapshot.files.length.toLocaleString('vi-VN')}
-            detail="Chỉ metadata được quét"
-            icon={<Database size={21} />}
-            tone="violet"
-          />
-        </section>
+              <StatCard
+                label="Có thể giải phóng an toàn"
+                value={formatBytes(potentialSavings)}
+                detail={`${suggestionFiles.length} mục có thể chọn`}
+                icon={<ScanSearch size={21} />}
+                tone="green"
+              />
+              <StatCard
+                label="File đang theo dõi"
+                value={snapshot.files.length.toLocaleString('vi-VN')}
+                detail="Chỉ metadata được quét"
+                icon={<Database size={21} />}
+                tone="violet"
+              />
+            </section>
 
-        <section className="media-footprint" aria-label="Phân bổ asset">
-          <div className="media-footprint__heading">
-            <strong>Asset footprint</strong>
-            <span>Nhóm file đang chiếm nhiều dung lượng nhất</span>
-          </div>
-          <div className="media-footprint__items">
-            {mediaFootprint.map((item) => (
-              <div className="media-footprint__item" key={item.kind}>
-                <span>{kindLabels[item.kind]}</span>
-                <strong>{formatBytes(item.bytes)}</strong>
-                <small>{item.count.toLocaleString('vi-VN')} file</small>
+            <section className="media-footprint" aria-label="Phân bổ asset">
+              <div className="media-footprint__heading">
+                <strong>Asset footprint</strong>
+                <span>Nhóm file đang chiếm nhiều dung lượng nhất</span>
               </div>
-            ))}
-          </div>
-        </section>
-
-        <CleanupRulesBar rules={rules} onChange={updateRules} />
-
-        <section className="work-grid">
-          <aside className="left-rail">
-            <div className="rail-label">Nhóm đề xuất</div>
-            <CategoryNav active={activeCategory} files={classifiedFiles} onChange={setActiveCategory} />
-            <div className="trash-callout">
-              <span><Trash2 size={18} /></span>
-              <div>
-                <strong>{formatBytes(snapshot.quota.usageInDriveTrash)}</strong>
-                <p>đang ở thùng rác</p>
+              <div className="media-footprint__items">
+                {mediaFootprint.map((item) => (
+                  <div className="media-footprint__item" key={item.kind}>
+                    <span>{kindLabels[item.kind]}</span>
+                    <strong>{formatBytes(item.bytes)}</strong>
+                    <small>{item.count.toLocaleString('vi-VN')} file</small>
+                  </div>
+                ))}
               </div>
-            </div>
-          </aside>
+            </section>
 
-          <FileTable
-            files={visibleFiles}
-            selectedIds={selectedIds}
-            cleanupBlocked={cleanupBlocked}
-            oldFileDays={rules.oldFileDays}
-            onToggle={handleToggle}
-            onToggleAll={handleToggleAll}
+            <CleanupRulesBar rules={rules} onChange={updateRules} />
+
+            <section className="work-grid">
+              <aside className="left-rail">
+                <div className="rail-label">Nhóm đề xuất</div>
+                <CategoryNav active={activeCategory} files={classifiedFiles} onChange={setActiveCategory} />
+                <div className="trash-callout">
+                  <span><Trash2 size={18} /></span>
+                  <div>
+                    <strong>{formatBytes(snapshot.quota.usageInDriveTrash)}</strong>
+                    <p>đang ở thùng rác</p>
+                  </div>
+                </div>
+              </aside>
+
+              <FileTable
+                files={visibleFiles}
+                selectedIds={selectedIds}
+                cleanupBlocked={cleanupBlocked}
+                oldFileDays={rules.oldFileDays}
+                onToggle={handleToggle}
+                onToggleAll={handleToggleAll}
+              />
+
+              <CleanupPanel
+                selected={selectedFiles}
+                isCleaning={isCleaning}
+                progress={cleanProgress}
+                result={cleanResult}
+                cleanupBlocked={cleanupBlocked}
+                blockedReason="Lần quét chưa hoàn chỉnh nên Clean đã khóa mọi thay đổi file."
+                undoFiles={lastTrashBatch}
+                isRestoring={isRestoring}
+                onClean={() => setShowConfirm(true)}
+                onClear={() => setSelectedIds(new Set())}
+                onUndo={handleUndo}
+              />
+            </section>
+
+            <footer className="footer-note">
+              <HardDrive size={15} /> Dung lượng giải phóng là ước tính từ metadata Google Drive và có thể cập nhật chậm sau khi dọn.
+            </footer>
+          </>
+        ) : (
+          <ProjectStoragePanel
+            entries={projectStorage.projects}
+            unclassifiedBytes={projectStorage.unclassifiedBytes}
+            unclassifiedCount={projectStorage.unclassifiedCount}
+            isSaving={isSavingProject}
+            onSave={handleSaveProject}
           />
-
-          <CleanupPanel
-            selected={selectedFiles}
-            isCleaning={isCleaning}
-            progress={cleanProgress}
-            result={cleanResult}
-            cleanupBlocked={cleanupBlocked}
-            blockedReason="Lần quét chưa hoàn chỉnh nên Clean đã khóa mọi thay đổi file."
-            undoFiles={lastTrashBatch}
-            isRestoring={isRestoring}
-            onClean={() => setShowConfirm(true)}
-            onClear={() => setSelectedIds(new Set())}
-            onUndo={handleUndo}
-          />
-        </section>
-
-        <footer className="footer-note">
-          <HardDrive size={15} /> Dung lượng giải phóng là ước tính từ metadata Google Drive và có thể cập nhật chậm sau khi dọn.
-        </footer>
+        )}
       </main>
 
       {showConfirm ? (

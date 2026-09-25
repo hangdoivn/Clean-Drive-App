@@ -1,4 +1,5 @@
 import type { CategoryId, ClassifiedFile, CleanupRules, DriveFile, FileKind } from '../types';
+import { findProjectContext } from './projects';
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
@@ -43,9 +44,10 @@ function fileBytes(file: DriveFile): bigint {
   return BigInt(file.quotaBytesUsed || file.size || '0');
 }
 
-function getProtectedReason(file: DriveFile): string | undefined {
+function getProtectedReason(file: DriveFile, projectStatus?: string): string | undefined {
   if (!file.ownedByMe) return 'Không thuộc sở hữu của bạn';
   if (!file.capabilities?.canTrash) return 'Không có quyền đưa vào thùng rác';
+  if (projectStatus === 'active') return 'Thuộc dự án đang hoạt động';
   if (file.starred) return 'Đã gắn dấu sao';
 
   const modifiedAt = file.modifiedTime ? new Date(file.modifiedTime).getTime() : 0;
@@ -80,6 +82,7 @@ function chooseDuplicateKeeper(bucket: DriveFile[]): DriveFile {
 export function classifyFiles(files: DriveFile[], rules: CleanupRules = DEFAULT_CLEANUP_RULES): ClassifiedFile[] {
   const childCountByFolder = new Map<string, number>();
   const duplicateBuckets = new Map<string, DriveFile[]>();
+  const byId = new Map(files.map((file) => [file.id, file]));
 
   for (const file of files) {
     for (const parentId of file.parents ?? []) {
@@ -114,6 +117,7 @@ export function classifyFiles(files: DriveFile[], rules: CleanupRules = DEFAULT_
     const bytes = fileBytes(file);
     const duplicate = duplicateMeta.get(file.id);
     const lastActivity = lastActivityAt(file);
+    const project = findProjectContext(file, byId);
 
     if (bytes >= largeThreshold && file.mimeType !== FOLDER_MIME) categories.push('large');
     if (duplicate) categories.push('duplicate');
@@ -125,10 +129,11 @@ export function classifyFiles(files: DriveFile[], rules: CleanupRules = DEFAULT_
       bytes,
       kind: classifyFileKind(file),
       categories,
-      protectedReason: getProtectedReason(file),
+      protectedReason: getProtectedReason(file, project?.status),
       duplicateCount: duplicate?.count,
       duplicateGroupId: duplicate?.groupId,
       duplicateRole: duplicate?.role,
+      project,
     };
   });
 }

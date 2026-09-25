@@ -8,6 +8,7 @@ import {
   totalBytes,
 } from './classify';
 import type { DriveFile } from '../types';
+import { buildProjectStorage, projectAppProperties } from './projects';
 
 const base: DriveFile = {
   id: 'a',
@@ -95,6 +96,41 @@ describe('classifyFiles', () => {
     ]);
     const summary = storageByKind(files);
     expect(summary.map((item) => item.kind)).toEqual(expect.arrayContaining(['video', 'photo-raw']));
+  });
+
+  it('protects files inside active tagged projects', () => {
+    const folder: DriveFile = {
+      id: 'project',
+      name: 'Akimitsu',
+      mimeType: 'application/vnd.google-apps.folder',
+      ownedByMe: true,
+      capabilities: { canTrash: true },
+      appProperties: projectAppProperties({ name: 'Akimitsu Retainer', client: 'Akimitsu', status: 'active' }),
+    };
+    const child: DriveFile = { ...base, id: 'child', md5Checksum: undefined, parents: ['project'] };
+    const files = classifyFiles([folder, child]);
+    expect(files.find((file) => file.id === 'child')?.protectedReason).toBe('Thuộc dự án đang hoạt động');
+  });
+
+  it('aggregates storage by top-level project folder', () => {
+    const rootFolder: DriveFile = {
+      id: 'root-project',
+      name: 'Columbo',
+      mimeType: 'application/vnd.google-apps.folder',
+      ownedByMe: true,
+      capabilities: { canTrash: true },
+    };
+    const nestedFolder: DriveFile = {
+      ...rootFolder,
+      id: 'nested',
+      name: 'RAW',
+      parents: ['root-project'],
+    };
+    const file: DriveFile = { ...base, id: 'clip', md5Checksum: undefined, parents: ['nested'] };
+    const storage = buildProjectStorage([rootFolder, nestedFolder, file]);
+    expect(storage.projects).toHaveLength(1);
+    expect(storage.projects[0].folder.id).toBe('root-project');
+    expect(storage.projects[0].bytes).toBe(600_000_000n);
   });
 
   it('sums int64 byte values using bigint', () => {

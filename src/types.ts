@@ -14,6 +14,7 @@ export type DriveFile = {
   trashed?: boolean;
   capabilities?: { canTrash?: boolean };
   webViewLink?: string;
+  appProperties?: Record<string, string>;
 };
 
 export type StorageQuota = {
@@ -33,6 +34,7 @@ export type DriveSnapshot = {
 
 export type CategoryId = 'overview' | 'large' | 'duplicate' | 'old' | 'empty';
 export type DuplicateRole = 'keep' | 'remove';
+export type ProjectStatus = 'active' | 'delivered' | 'archive';
 
 export type FileKind =
   | 'video'
@@ -50,6 +52,13 @@ export type CleanupRules = {
   oldFileDays: number;
 };
 
+export type ProjectContext = {
+  folderId: string;
+  name: string;
+  client?: string;
+  status: ProjectStatus;
+};
+
 export type ClassifiedFile = DriveFile & {
   bytes: bigint;
   kind: FileKind;
@@ -58,4 +67,22 @@ export type ClassifiedFile = DriveFile & {
   duplicateCount?: number;
   duplicateGroupId?: string;
   duplicateRole?: DuplicateRole;
+  project?: ProjectContext;
+};
+
+export type ProjectStorageEntry = {
+  folder: DriveFile;
+  bytes: bigint;
+  fileCount: number;
+  folderCount: number;
+  tagged: boolean;
+  name: string;
+  client?: string;
+  status?: ProjectStatus;
+};
+
+export type ProjectMetadataInput = {
+  name: string;
+  client: string;
+  status: ProjectStatus;
 };

@@ -123,7 +123,7 @@ export async function scanGoogleDrive(onProgress: (filesFound: number) => void):
   const fileFields = [
     'id', 'name', 'mimeType', 'size', 'quotaBytesUsed', 'md5Checksum',
     'createdTime', 'modifiedTime', 'viewedByMeTime', 'parents', 'ownedByMe',
-    'starred', 'trashed', 'capabilities/canTrash', 'webViewLink',
+    'starred', 'trashed', 'capabilities/canTrash', 'webViewLink', 'appProperties',
   ].join(',');
 
   const aboutPromise = driveFetch<{
@@ -225,4 +225,16 @@ export function restoreFilesFromTrash(
   onProgress: (completed: number) => void,
 ) {
   return setTrashState(files, false, onProgress);
+}
+
+
+export async function updateProjectFolderMetadata(
+  folderId: string,
+  appProperties: Record<string, string>,
+): Promise<void> {
+  const token = await requestAccessToken(WRITE_SCOPE);
+  await withBackoff(() => driveFetch(`/files/${encodeURIComponent(folderId)}?fields=id,appProperties`, token, {
+    method: 'PATCH',
+    body: JSON.stringify({ appProperties }),
+  }));
 }
