@@ -40,6 +40,8 @@ export type CategoryId = 'overview' | 'large' | 'duplicate' | 'old' | 'empty';
 export type DuplicateRole = 'keep' | 'remove';
 export type ProjectStatus = 'active' | 'delivered' | 'archive';
 
+export type ProductionRole = 'source' | 'working' | 'final' | 'temporary' | 'other';
+
 export type FileKind =
   | 'video'
   | 'photo-raw'
@@ -67,6 +69,8 @@ export type ProjectContext = {
 export type ClassifiedFile = DriveFile & {
   bytes: bigint;
   kind: FileKind;
+  productionRole: ProductionRole;
+  productionRoleReason?: string;
   categories: Exclude<CategoryId, 'overview'>[];
   protectedReason?: string;
   duplicateCount?: number;
@@ -148,4 +152,23 @@ export type ActivityLogEntry = {
   detail?: string;
   count?: number;
   bytes?: string;
+};
+
+
+export type ProductionRoleSummary = {
+  role: ProductionRole;
+  bytes: bigint;
+  count: number;
+};
+
+export type ArchiveProjectSummary = {
+  folderId: string;
+  totalBytes: bigint;
+  totalFiles: number;
+  safeRecoverableBytes: bigint;
+  safeRecoverableCount: number;
+  reviewBytes: bigint;
+  reviewCount: number;
+  projectedBytes: bigint;
+  roles: ProductionRoleSummary[];
 };

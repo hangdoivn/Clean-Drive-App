@@ -9,6 +9,7 @@ import {
 } from './classify';
 import type { DriveFile } from '../types';
 import { buildProjectStorage, projectAppProperties } from './projects';
+import { buildArchiveSummary, classifyProductionRole, isArchiveSafeCandidate } from './production';
 
 const base: DriveFile = {
   id: 'a',
@@ -145,6 +146,62 @@ describe('classifyFiles', () => {
     expect(storage.projects).toHaveLength(1);
     expect(storage.projects[0].folder.id).toBe('root-project');
     expect(storage.projects[0].bytes).toBe(600_000_000n);
+  });
+
+  it('classifies production roles from path and file type', () => {
+    const project: DriveFile = {
+      id: 'p',
+      name: 'Campaign',
+      mimeType: 'application/vnd.google-apps.folder',
+      ownedByMe: true,
+      capabilities: { canTrash: true },
+    };
+    const rawFolder: DriveFile = { ...project, id: 'raw', name: 'RAW', parents: ['p'] };
+    const proxyFolder: DriveFile = { ...project, id: 'proxy', name: 'Proxy', parents: ['p'] };
+    const byId = new Map([project, rawFolder, proxyFolder].map((file) => [file.id, file]));
+    expect(classifyProductionRole({ ...base, id: 'r', name: 'A001.mov', parents: ['raw'] }, 'video', byId).role).toBe('source');
+    expect(classifyProductionRole({ ...base, id: 'x', name: 'A001.mp4', parents: ['proxy'] }, 'video', byId).role).toBe('temporary');
+    expect(classifyProductionRole({ ...base, id: 'd', name: 'KV.psd', md5Checksum: undefined }, 'design', byId).role).toBe('working');
+  });
+
+  it('does not count source or working files as default cleanup candidates', () => {
+    const source = classifyFiles([{ ...base, id: 'raw-1', name: 'DSC0001.ARW', md5Checksum: undefined }])[0];
+    const working = classifyFiles([{ ...base, id: 'work-1', name: 'Campaign.psd', md5Checksum: undefined }])[0];
+    expect(source.productionRole).toBe('source');
+    expect(working.productionRole).toBe('working');
+    expect(isCleanupCandidate(source)).toBe(false);
+    expect(isCleanupCandidate(working)).toBe(false);
+  });
+
+  it('builds archive preview from safe temporary and duplicate files only', () => {
+    const folder: DriveFile = {
+      id: 'project-archive',
+      name: 'Delivered Campaign',
+      mimeType: 'application/vnd.google-apps.folder',
+      ownedByMe: true,
+      capabilities: { canTrash: true },
+      appProperties: projectAppProperties({ name: 'Delivered', client: 'Client', status: 'delivered' }),
+    };
+    const proxyFolder: DriveFile = {
+      id: 'proxy-folder',
+      name: 'Proxy',
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: ['project-archive'],
+      ownedByMe: true,
+      capabilities: { canTrash: true },
+    };
+    const files = classifyFiles([
+      folder,
+      proxyFolder,
+      { ...base, id: 'proxy-file', name: 'preview.mp4', md5Checksum: undefined, parents: ['proxy-folder'] },
+      { ...base, id: 'source-file', name: 'DSC0001.ARW', md5Checksum: undefined, parents: ['project-archive'] },
+    ]);
+    const summary = buildArchiveSummary(files, 'project-archive');
+    expect(summary.totalFiles).toBe(2);
+    expect(files.find((file) => file.id === 'proxy-file')?.productionRole).toBe('temporary');
+    expect(isArchiveSafeCandidate(files.find((file) => file.id === 'proxy-file')!)).toBe(true);
+    expect(isArchiveSafeCandidate(files.find((file) => file.id === 'source-file')!)).toBe(false);
+    expect(summary.safeRecoverableCount).toBe(1);
   });
 
   it('sums int64 byte values using bigint', () => {

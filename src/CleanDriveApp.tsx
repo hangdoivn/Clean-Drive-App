@@ -23,6 +23,7 @@ import { ProjectStoragePanel } from './components/ProjectStoragePanel';
 import { CoreIntegrationPanel } from './components/CoreIntegrationPanel';
 import { AccessPanel } from './components/AccessPanel';
 import { ActivityPanel } from './components/ActivityPanel';
+import { ArchiveReviewPanel } from './components/ArchiveReviewPanel';
 import { DriveSyncState } from './components/DriveSyncState';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
@@ -38,6 +39,7 @@ import {
 import { buildProjectStorage, projectAppProperties } from './lib/projects';
 import { applyCoreProjectOverlay, loadCoreContext } from './lib/hangdoi-core';
 import { appendActivityLog, loadActivityLog } from './lib/activity-log';
+import { buildArchiveSummary, isArchiveSafeCandidate } from './lib/production';
 import { demoSnapshot } from './lib/demo-data';
 import { loadLastDriveIndex, saveDriveIndex } from './lib/drive-index';
 import { formatBytes } from './lib/format';
@@ -114,6 +116,8 @@ export function CleanDriveApp() {
   const [mode, setMode] = useState<'cleanup' | 'projects' | 'access' | 'activity'>('cleanup');
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState<string>();
+  const [archiveProjectId, setArchiveProjectId] = useState<string>();
+  const [archiveSafeOnly, setArchiveSafeOnly] = useState(false);
   const [rules, setRules] = useState<CleanupRules>(loadRules);
   const [duplicateKeeperOverrides, setDuplicateKeeperOverrides] = useState<Record<string, string>>(loadDuplicateKeeperOverrides);
   const [isDemo, setIsDemo] = useState(true);
@@ -196,8 +200,9 @@ export function CleanDriveApp() {
   const visibleFiles = useMemo(() => {
     const base = filterByCategory(classifiedFiles, activeCategory);
     const scoped = projectFilterId ? base.filter((file) => file.project?.folderId === projectFilterId) : base;
-    return scoped.sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0));
-  }, [classifiedFiles, activeCategory, projectFilterId]);
+    const archiveScoped = archiveSafeOnly ? scoped.filter(isArchiveSafeCandidate) : scoped;
+    return archiveScoped.sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0));
+  }, [classifiedFiles, activeCategory, projectFilterId, archiveSafeOnly]);
 
   const isBootRestoring = bootState === 'restoring';
   const isInitialSync = scanState === 'scanning' && isDemo;
@@ -221,6 +226,18 @@ export function CleanDriveApp() {
   const filteredProject = projectFilterId
     ? projectStorage.projects.find((entry) => entry.folder.id === projectFilterId)
     : undefined;
+  const archiveByProject = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof buildArchiveSummary>>();
+    for (const entry of projectStorage.projects) {
+      if (!entry.tagged || entry.status === 'active') continue;
+      map.set(entry.folder.id, buildArchiveSummary(classifiedFiles, entry.folder.id));
+    }
+    return map;
+  }, [projectStorage.projects, classifiedFiles]);
+  const archiveProject = archiveProjectId
+    ? projectStorage.projects.find((entry) => entry.folder.id === archiveProjectId)
+    : undefined;
+  const archiveSummary = archiveProjectId ? archiveByProject.get(archiveProjectId) : undefined;
 
   const limit = snapshot.quota.limit ? toBytes(snapshot.quota.limit) : undefined;
   const usage = toBytes(snapshot.quota.usage || snapshot.quota.usageInDrive);
@@ -519,8 +536,19 @@ export function CleanDriveApp() {
 
   const handleReviewProject = (folderId: string) => {
     setProjectFilterId(folderId);
+    setArchiveSafeOnly(false);
     setActiveCategory('overview');
     setSelectedIds(new Set());
+    setMode('cleanup');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleReviewArchiveSafe = (folderId: string) => {
+    setProjectFilterId(folderId);
+    setArchiveSafeOnly(true);
+    setActiveCategory('overview');
+    setSelectedIds(new Set());
+    setArchiveProjectId(undefined);
     setMode('cleanup');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -716,9 +744,9 @@ export function CleanDriveApp() {
               <div className="project-filter-banner">
                 <div>
                   <FolderKanban size={17} />
-                  <span>Đang xem đề xuất của <strong>{filteredProject.name}</strong>{filteredProject.client ? ` · ${filteredProject.client}` : ''}</span>
+                  <span>{archiveSafeOnly ? 'Archive review · ' : 'Đang xem đề xuất của '}<strong>{filteredProject.name}</strong>{filteredProject.client ? ` · ${filteredProject.client}` : ''}</span>
                 </div>
-                <button type="button" onClick={() => { setProjectFilterId(undefined); setSelectedIds(new Set()); }}>Xem tất cả</button>
+                <button type="button" onClick={() => { setProjectFilterId(undefined); setArchiveSafeOnly(false); setSelectedIds(new Set()); }}>Xem tất cả</button>
               </div>
             ) : null}
 
@@ -780,16 +808,26 @@ export function CleanDriveApp() {
               error={coreError}
               onRefresh={handleRefreshCore}
             />
+            {archiveProject && archiveSummary ? (
+              <ArchiveReviewPanel
+                project={archiveProject}
+                summary={archiveSummary}
+                onClose={() => setArchiveProjectId(undefined)}
+                onReviewSafe={handleReviewArchiveSafe}
+              />
+            ) : null}
             <ProjectStoragePanel
               entries={projectStorage.projects}
               unclassifiedBytes={projectStorage.unclassifiedBytes}
               unclassifiedCount={projectStorage.unclassifiedCount}
               cleanupByProject={projectCleanup}
+              archiveByProject={archiveByProject}
               coreProjects={coreProjects}
               coreConnected={coreState === 'connected'}
               isSaving={isSavingProject}
               onSave={handleSaveProject}
               onReview={handleReviewProject}
+              onOpenArchive={setArchiveProjectId}
             />
           </>
         ) : mode === 'access' ? (

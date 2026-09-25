@@ -1,5 +1,6 @@
 import type { CategoryId, ClassifiedFile, CleanupRules, DriveFile, FileKind } from '../types';
 import { findProjectContext } from './projects';
+import { classifyProductionRole, productionProtectionReason } from './production';
 
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
@@ -44,11 +45,17 @@ function fileBytes(file: DriveFile): bigint {
   return BigInt(file.quotaBytesUsed || file.size || '0');
 }
 
-function getProtectedReason(file: DriveFile, projectStatus?: string): string | undefined {
+function getProtectedReason(
+  file: DriveFile,
+  projectStatus?: string,
+  productionRole?: import('../types').ProductionRole,
+): string | undefined {
   if (!file.ownedByMe) return 'Không thuộc sở hữu của bạn';
   if (!file.capabilities?.canTrash) return 'Không có quyền đưa vào thùng rác';
   if (projectStatus === 'active') return 'Thuộc dự án đang hoạt động';
   if (file.starred) return 'Đã gắn dấu sao';
+  const productionReason = productionRole ? productionProtectionReason(productionRole) : undefined;
+  if (productionReason) return productionReason;
 
   const modifiedAt = file.modifiedTime ? new Date(file.modifiedTime).getTime() : 0;
   if (modifiedAt > Date.now() - 30 * 24 * 60 * 60 * 1000) return 'Mới chỉnh sửa gần đây';
@@ -123,6 +130,8 @@ export function classifyFiles(
     const duplicate = duplicateMeta.get(file.id);
     const lastActivity = lastActivityAt(file);
     const project = findProjectContext(file, byId);
+    const kind = classifyFileKind(file);
+    const production = classifyProductionRole(file, kind, byId);
 
     if (bytes >= largeThreshold && file.mimeType !== FOLDER_MIME) categories.push('large');
     if (duplicate) categories.push('duplicate');
@@ -132,9 +141,11 @@ export function classifyFiles(
     return {
       ...file,
       bytes,
-      kind: classifyFileKind(file),
+      kind,
+      productionRole: production.role,
+      productionRoleReason: production.reason,
       categories,
-      protectedReason: getProtectedReason(file, project?.status),
+      protectedReason: getProtectedReason(file, project?.status, production.role),
       duplicateCount: duplicate?.count,
       duplicateGroupId: duplicate?.groupId,
       duplicateRole: duplicate?.role,

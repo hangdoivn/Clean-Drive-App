@@ -1,7 +1,7 @@
 import { Archive, Check, FolderKanban, PackageCheck, Pencil, Save, Search, ShieldCheck, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatBytes } from '../lib/format';
-import type { CoreProject, ProjectMetadataInput, ProjectStatus, ProjectStorageEntry } from '../types';
+import type { ArchiveProjectSummary, CoreProject, ProjectMetadataInput, ProjectStatus, ProjectStorageEntry } from '../types';
 import { mapCoreProjectStatus } from '../lib/hangdoi-core';
 
 type ProjectStoragePanelProps = {
@@ -9,11 +9,13 @@ type ProjectStoragePanelProps = {
   unclassifiedBytes: bigint;
   unclassifiedCount: number;
   cleanupByProject: Map<string, { count: number; bytes: bigint }>;
+  archiveByProject: Map<string, ArchiveProjectSummary>;
   coreProjects?: CoreProject[];
   coreConnected?: boolean;
   isSaving?: boolean;
   onSave: (folderId: string, metadata: ProjectMetadataInput) => Promise<void>;
   onReview: (folderId: string) => void;
+  onOpenArchive: (folderId: string) => void;
 };
 
 const statusLabel: Record<ProjectStatus, string> = {
@@ -33,11 +35,13 @@ export function ProjectStoragePanel({
   unclassifiedBytes,
   unclassifiedCount,
   cleanupByProject,
+  archiveByProject,
   coreProjects = [],
   coreConnected,
   isSaving,
   onSave,
   onReview,
+  onOpenArchive,
 }: ProjectStoragePanelProps) {
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string>();
@@ -108,7 +112,8 @@ export function ProjectStoragePanel({
           {filtered.map((entry) => {
             const editing = editingId === entry.folder.id;
             const cleanup = cleanupByProject.get(entry.folder.id);
-            const canReview = entry.tagged && entry.status !== 'active' && cleanup && cleanup.count > 0;
+            const archiveSummary = archiveByProject.get(entry.folder.id);
+            const canArchiveReview = Boolean(entry.tagged && entry.status !== 'active' && archiveSummary);
             const StatusIcon = entry.status ? statusIcon[entry.status] : FolderKanban;
             return (
               <article className={`project-row${entry.tagged ? ' is-tagged' : ''}`} key={entry.folder.id}>
@@ -134,9 +139,9 @@ export function ProjectStoragePanel({
                 </div>
 
                 <div className="project-row__actions">
-                  {canReview ? (
-                    <button className="project-review" type="button" onClick={() => onReview(entry.folder.id)}>
-                      Xem dọn · {formatBytes(cleanup.bytes)}
+                  {canArchiveReview ? (
+                    <button className="project-review" type="button" onClick={() => onOpenArchive(entry.folder.id)}>
+                      Review archive{archiveSummary && archiveSummary.safeRecoverableBytes > 0n ? ` · ${formatBytes(archiveSummary.safeRecoverableBytes)}` : ''}
                     </button>
                   ) : null}
                   <button className="project-edit" type="button" onClick={() => startEdit(entry)}>
