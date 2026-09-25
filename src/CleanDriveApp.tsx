@@ -14,6 +14,7 @@ import {
   WandSparkles,
   ShieldAlert,
   Clock3,
+  Settings2,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { BrandMark } from './components/BrandMark';
@@ -26,6 +27,7 @@ import { ActivityPanel } from './components/ActivityPanel';
 import { ArchiveReviewPanel } from './components/ArchiveReviewPanel';
 import { DriveSyncState } from './components/DriveSyncState';
 import { StorageHealthPanel } from './components/StorageHealthPanel';
+import { SettingsDialog } from './components/SettingsDialog';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
 import { StatCard } from './components/StatCard';
@@ -42,7 +44,7 @@ import { applyCoreProjectOverlay, loadCoreContext } from './lib/hangdoi-core';
 import { appendActivityLog, loadActivityLog } from './lib/activity-log';
 import { buildArchiveSummary, getRetentionPolicy, isArchiveSafeCandidate } from './lib/production';
 import { demoSnapshot } from './lib/demo-data';
-import { loadLastDriveIndex, saveDriveIndex } from './lib/drive-index';
+import { clearDriveIndex, loadLastDriveIndex, saveDriveIndex } from './lib/drive-index';
 import { formatBytes } from './lib/format';
 import {
   listFilePermissions,
@@ -145,6 +147,7 @@ export function CleanDriveApp() {
   const [coreState, setCoreState] = useState<'idle' | 'loading' | 'connected' | 'error'>('idle');
   const [coreError, setCoreError] = useState<string>();
   const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>(loadActivityLog);
+  const [showSettings, setShowSettings] = useState(false);
 
 
   useEffect(() => {
@@ -304,6 +307,57 @@ export function CleanDriveApp() {
     }
   };
 
+
+
+  const handleFullReindex = async () => {
+    if (scanState === 'scanning') return;
+    setScanState('scanning');
+    setScanCount(0);
+    setMessage(undefined);
+    setSelectedIds(new Set());
+    setCleanResult(undefined);
+    setLastTrashBatch([]);
+    setAccessAudits({});
+
+    try {
+      const result = await syncGoogleDrive(undefined, setScanCount);
+      setSnapshot(result.snapshot);
+      setIsDemo(false);
+      setIsCached(false);
+      setScanState('idle');
+      setSyncSummary(`Full re-index · ${result.snapshot.files.length.toLocaleString('vi-VN')} file`);
+      recordActivity({
+        type: 'sync',
+        title: 'Full re-index Google Drive',
+        detail: `${result.snapshot.files.length.toLocaleString('vi-VN')} file được index lại từ đầu.`,
+        count: result.snapshot.files.length,
+      });
+      await saveDriveIndex(result.snapshot);
+      setShowSettings(false);
+    } catch (error) {
+      setScanState('error');
+      setMessage(error instanceof Error ? error.message : 'Không thể full re-index Google Drive.');
+      throw error;
+    }
+  };
+
+  const handleClearLocalCache = async () => {
+    try {
+      await clearDriveIndex();
+      setSyncSummary('Metadata cache trên thiết bị đã được xóa');
+      setMessage('Đã xóa metadata cache trên thiết bị này. Phiên Drive hiện tại vẫn giữ nguyên cho đến khi reload.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Không thể xóa metadata cache.');
+      throw error;
+    }
+  };
+
+  const handleResetDuplicateKeepers = () => {
+    window.localStorage.removeItem(DUPLICATE_KEEPERS_KEY);
+    setDuplicateKeeperOverrides({});
+    setSelectedIds(new Set());
+    setMessage('Đã reset lựa chọn bản giữ duplicate về logic mặc định của Clean.');
+  };
 
   const handleChooseDuplicateKeeper = (groupId: string, fileId: string) => {
     setDuplicateKeeperOverrides((current) => {
@@ -600,6 +654,9 @@ export function CleanDriveApp() {
         </a>
         <div className="topbar__actions">
           <a className="hub-back-link" href="/">Apps</a>
+          <button className="topbar-icon-button" type="button" onClick={() => setShowSettings(true)} aria-label="Cài đặt Clean Drive" title="Cài đặt">
+            <Settings2 size={17} />
+          </button>
           <span
             className={isBootRestoring
               ? 'data-badge is-restoring'
@@ -864,6 +921,21 @@ export function CleanDriveApp() {
           <ActivityPanel entries={activityLog} />
         )}
       </main>
+
+      {showSettings ? (
+        <SettingsDialog
+          email={snapshot.email}
+          lastSyncedAt={snapshot.lastSyncedAt}
+          isCached={isCached}
+          rules={rules}
+          isSyncing={scanState === 'scanning'}
+          onRulesChange={updateRules}
+          onFullReindex={handleFullReindex}
+          onClearCache={handleClearLocalCache}
+          onResetDuplicateKeepers={handleResetDuplicateKeepers}
+          onClose={() => setShowSettings(false)}
+        />
+      ) : null}
 
       {showConfirm ? (
         <ConfirmDialog

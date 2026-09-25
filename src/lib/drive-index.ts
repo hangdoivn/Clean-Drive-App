@@ -50,3 +50,16 @@ export async function loadLastDriveIndex(): Promise<DriveSnapshot | undefined> {
   db.close();
   return snapshot;
 }
+
+
+export async function clearDriveIndex(): Promise<void> {
+  window.localStorage.removeItem(LAST_EMAIL_KEY);
+  if (!window.indexedDB) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const request = window.indexedDB.deleteDatabase(DB_NAME);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error('Không xóa được metadata cache.'));
+    request.onblocked = () => reject(new Error('Metadata cache đang được tab khác sử dụng.'));
+  });
+}
