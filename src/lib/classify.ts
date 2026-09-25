@@ -79,7 +79,11 @@ function chooseDuplicateKeeper(bucket: DriveFile[]): DriveFile {
   })[0];
 }
 
-export function classifyFiles(files: DriveFile[], rules: CleanupRules = DEFAULT_CLEANUP_RULES): ClassifiedFile[] {
+export function classifyFiles(
+  files: DriveFile[],
+  rules: CleanupRules = DEFAULT_CLEANUP_RULES,
+  duplicateKeeperOverrides: Record<string, string> = {},
+): ClassifiedFile[] {
   const childCountByFolder = new Map<string, number>();
   const duplicateBuckets = new Map<string, DriveFile[]>();
   const byId = new Map(files.map((file) => [file.id, file]));
@@ -99,7 +103,8 @@ export function classifyFiles(files: DriveFile[], rules: CleanupRules = DEFAULT_
   const duplicateMeta = new Map<string, { count: number; groupId: string; role: 'keep' | 'remove' }>();
   for (const [groupId, bucket] of duplicateBuckets.entries()) {
     if (bucket.length <= 1) continue;
-    const keeper = chooseDuplicateKeeper(bucket);
+    const overriddenKeeperId = duplicateKeeperOverrides[groupId];
+    const keeper = bucket.find((file) => file.id === overriddenKeeperId) ?? chooseDuplicateKeeper(bucket);
     for (const file of bucket) {
       duplicateMeta.set(file.id, {
         count: bucket.length,

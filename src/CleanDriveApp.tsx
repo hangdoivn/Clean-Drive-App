@@ -64,6 +64,7 @@ import type {
 } from './types';
 
 const RULES_STORAGE_KEY = 'hangdoi-clean-drive-rules-v1';
+const DUPLICATE_KEEPERS_KEY = 'hangdoi-clean-drive-duplicate-keepers-v1';
 
 const kindLabels: Record<FileKind, string> = {
   video: 'Video',
@@ -91,6 +92,19 @@ function loadRules(): CleanupRules {
   }
 }
 
+function loadDuplicateKeeperOverrides(): Record<string, string> {
+  try {
+    const raw = window.localStorage.getItem(DUPLICATE_KEEPERS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    );
+  } catch {
+    return {};
+  }
+}
+
 function toBytes(value?: string): bigint {
   return BigInt(value || '0');
 }
@@ -101,6 +115,7 @@ export function CleanDriveApp() {
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState<string>();
   const [rules, setRules] = useState<CleanupRules>(loadRules);
+  const [duplicateKeeperOverrides, setDuplicateKeeperOverrides] = useState<Record<string, string>>(loadDuplicateKeeperOverrides);
   const [isDemo, setIsDemo] = useState(true);
   const [isCached, setIsCached] = useState(false);
   const [bootState, setBootState] = useState<'restoring' | 'ready'>('restoring');
@@ -174,7 +189,10 @@ export function CleanDriveApp() {
     () => applyCoreProjectOverlay(snapshot.files, coreProjects),
     [snapshot.files, coreProjects],
   );
-  const classifiedFiles = useMemo(() => classifyFiles(effectiveFiles, rules), [effectiveFiles, rules]);
+  const classifiedFiles = useMemo(
+    () => classifyFiles(effectiveFiles, rules, duplicateKeeperOverrides),
+    [effectiveFiles, rules, duplicateKeeperOverrides],
+  );
   const visibleFiles = useMemo(() => {
     const base = filterByCategory(classifiedFiles, activeCategory);
     const scoped = projectFilterId ? base.filter((file) => file.project?.folderId === projectFilterId) : base;
@@ -261,6 +279,23 @@ export function CleanDriveApp() {
       setScanState('error');
       setMessage(error instanceof Error ? error.message : 'Không thể kết nối Google Drive.');
     }
+  };
+
+
+  const handleChooseDuplicateKeeper = (groupId: string, fileId: string) => {
+    setDuplicateKeeperOverrides((current) => {
+      const next = { ...current, [groupId]: fileId };
+      window.localStorage.setItem(DUPLICATE_KEEPERS_KEY, JSON.stringify(next));
+      return next;
+    });
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const file of classifiedFiles) {
+        if (file.duplicateGroupId === groupId) next.delete(file.id);
+      }
+      return next;
+    });
+    setCleanResult(undefined);
   };
 
   const handleToggle = (file: (typeof classifiedFiles)[number]) => {
@@ -702,12 +737,14 @@ export function CleanDriveApp() {
 
               <FileTable
                 files={visibleFiles}
+                activeCategory={activeCategory}
                 selectedIds={selectedIds}
                 cleanupBlocked={cleanupBlocked}
                 rules={rules}
                 onRulesChange={updateRules}
                 onToggle={handleToggle}
                 onToggleAll={handleToggleAll}
+                onChooseDuplicateKeeper={handleChooseDuplicateKeeper}
               />
 
               <CleanupPanel

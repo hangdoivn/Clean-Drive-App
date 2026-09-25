@@ -41,6 +41,20 @@ describe('classifyFiles', () => {
     expect(files.find((file) => file.id === 'c')?.duplicateRole).toBe('keep');
   });
 
+  it('allows a user-selected canonical copy without changing duplicate safety', () => {
+    const files = classifyFiles(
+      [
+        base,
+        { ...base, id: 'b', name: 'b.zip', modifiedTime: '2022-01-01T00:00:00.000Z' },
+      ],
+      undefined,
+      { 'same:600000000': 'a' },
+    );
+    expect(files.find((file) => file.id === 'a')?.duplicateRole).toBe('keep');
+    expect(files.find((file) => file.id === 'b')?.duplicateRole).toBe('remove');
+    expect(files.filter((file) => file.duplicateRole === 'keep')).toHaveLength(1);
+  });
+
   it('prefers a protected duplicate as the keeper', () => {
     const files = classifyFiles([
       base,
