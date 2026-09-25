@@ -25,6 +25,7 @@ import { AccessPanel } from './components/AccessPanel';
 import { ActivityPanel } from './components/ActivityPanel';
 import { ArchiveReviewPanel } from './components/ArchiveReviewPanel';
 import { DriveSyncState } from './components/DriveSyncState';
+import { StorageHealthPanel } from './components/StorageHealthPanel';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
 import { StatCard } from './components/StatCard';
@@ -240,6 +241,9 @@ export function CleanDriveApp() {
     ? projectStorage.projects.find((entry) => entry.folder.id === archiveProjectId)
     : undefined;
   const archiveSummary = archiveProjectId ? archiveByProject.get(archiveProjectId) : undefined;
+  const activeProjectBytes = projectStorage.projects
+    .filter((entry) => entry.tagged && entry.status === 'active')
+    .reduce((sum, entry) => sum + entry.bytes, 0n);
 
   const limit = snapshot.quota.limit ? toBytes(snapshot.quota.limit) : undefined;
   const usage = toBytes(snapshot.quota.usage || snapshot.quota.usageInDrive);
@@ -718,13 +722,24 @@ export function CleanDriveApp() {
                 tone="green"
               />
               <StatCard
-                label="File đang theo dõi"
-                value={snapshot.files.length.toLocaleString('vi-VN')}
-                detail="Chỉ metadata được quét"
-                icon={<Database size={21} />}
+                label="Active Project"
+                value={formatBytes(activeProjectBytes)}
+                detail={`${projectStorage.projects.filter((entry) => entry.tagged && entry.status === 'active').length} project đang được bảo vệ`}
+                icon={<FolderKanban size={21} />}
                 tone="violet"
               />
             </section>
+
+            <StorageHealthPanel
+              projects={projectStorage.projects}
+              archiveByProject={archiveByProject}
+              audits={accessAudits}
+              unclassifiedBytes={projectStorage.unclassifiedBytes}
+              unclassifiedCount={projectStorage.unclassifiedCount}
+              onProjects={() => setMode('projects')}
+              onAccess={() => setMode('access')}
+              onArchive={(folderId) => { setArchiveProjectId(folderId); setMode('projects'); }}
+            />
 
             <section className="media-footprint" aria-label="Phân bổ asset">
               <div className="media-footprint__heading">
