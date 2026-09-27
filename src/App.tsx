@@ -1,5 +1,7 @@
+import { lazy, Suspense } from 'react';
 import { AppWindow, ArrowUpRight, HardDrive, Megaphone, CalendarDays, BriefcaseBusiness } from 'lucide-react';
-import { CleanDriveApp } from './CleanDriveApp';
+
+const CleanDriveApp = lazy(() => import('./CleanDriveApp'));
 
 type HubApp = {
   name: string;
@@ -87,7 +89,13 @@ function AppHub() {
 
 function App() {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
-  if (path === '/clean-drive') return <CleanDriveApp />;
+  if (path === '/clean-drive') {
+    return (
+      <Suspense fallback={<div className="route-loading" aria-live="polite">Đang mở Clean Drive…</div>}>
+        <CleanDriveApp />
+      </Suspense>
+    );
+  }
   return <AppHub />;
 }
 

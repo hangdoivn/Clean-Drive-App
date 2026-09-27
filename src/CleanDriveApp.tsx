@@ -16,19 +16,13 @@ import {
   Clock3,
   Settings2,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { BrandMark } from './components/BrandMark';
 import { CategoryNav } from './components/CategoryNav';
 import { CleanupPanel } from './components/CleanupPanel';
-import { ProjectStoragePanel } from './components/ProjectStoragePanel';
-import { CoreIntegrationPanel } from './components/CoreIntegrationPanel';
-import { AccessPanel } from './components/AccessPanel';
-import { ActivityPanel } from './components/ActivityPanel';
-import { ArchiveReviewPanel } from './components/ArchiveReviewPanel';
 import { DriveSyncState } from './components/DriveSyncState';
 import { DriveConnectState } from './components/DriveConnectState';
 import { StorageHealthPanel } from './components/StorageHealthPanel';
-import { SettingsDialog } from './components/SettingsDialog';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
 import { StatCard } from './components/StatCard';
@@ -67,6 +61,29 @@ import type {
   FileKind,
   ProjectMetadataInput,
 } from './types';
+
+const ProjectStoragePanel = lazy(() =>
+  import('./components/ProjectStoragePanel').then((module) => ({ default: module.ProjectStoragePanel })),
+);
+const CoreIntegrationPanel = lazy(() =>
+  import('./components/CoreIntegrationPanel').then((module) => ({ default: module.CoreIntegrationPanel })),
+);
+const AccessPanel = lazy(() =>
+  import('./components/AccessPanel').then((module) => ({ default: module.AccessPanel })),
+);
+const ActivityPanel = lazy(() =>
+  import('./components/ActivityPanel').then((module) => ({ default: module.ActivityPanel })),
+);
+const ArchiveReviewPanel = lazy(() =>
+  import('./components/ArchiveReviewPanel').then((module) => ({ default: module.ArchiveReviewPanel })),
+);
+const SettingsDialog = lazy(() =>
+  import('./components/SettingsDialog').then((module) => ({ default: module.SettingsDialog })),
+);
+
+function PanelLoading({ label }: { label: string }) {
+  return <div className="panel-loading" aria-live="polite">{label}</div>;
+}
 
 const RULES_STORAGE_KEY = 'hangdoi-clean-drive-rules-v1';
 const DUPLICATE_KEEPERS_KEY = 'hangdoi-clean-drive-duplicate-keepers-v1';
@@ -184,29 +201,37 @@ export function CleanDriveApp() {
   }, []);
 
   useEffect(() => {
+    if (bootState !== 'ready' || !snapshot.email) return;
+
     let cancelled = false;
-    setCoreState('loading');
-    loadCoreContext()
-      .then(({ session, projects }) => {
-        if (cancelled) return;
-        setCoreSession(session);
-        setCoreProjects(projects);
-        setCoreState('connected');
-        setCoreError(undefined);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setCoreState('error');
-        setCoreError(error instanceof Error ? error.message : 'Không kết nối được Project Core.');
-      });
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      setCoreState('loading');
+      loadCoreContext()
+        .then(({ session, projects }) => {
+          if (cancelled) return;
+          setCoreSession(session);
+          setCoreProjects(projects);
+          setCoreState('connected');
+          setCoreError(undefined);
+        })
+        .catch((error) => {
+          if (cancelled) return;
+          setCoreState('error');
+          setCoreError(error instanceof Error ? error.message : 'Không kết nối được Project Core.');
+        });
+    }, 450);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, []);
+  }, [bootState, snapshot.email]);
 
+  const deferredSnapshotFiles = useDeferredValue(snapshot.files);
   const effectiveFiles = useMemo(
-    () => applyCoreProjectOverlay(snapshot.files, coreProjects),
-    [snapshot.files, coreProjects],
+    () => applyCoreProjectOverlay(deferredSnapshotFiles, coreProjects),
+    [deferredSnapshotFiles, coreProjects],
   );
   const classifiedFiles = useMemo(
     () => classifyFiles(effectiveFiles, rules, duplicateKeeperOverrides),
@@ -222,6 +247,9 @@ export function CleanDriveApp() {
   }, [classifiedFiles, activeCategory, projectFilterId, archiveSafeOnly]);
 
   const hasDriveData = Boolean(snapshot.email);
+  const isPreparingDerivedData = hasDriveData
+    && deferredSnapshotFiles !== snapshot.files
+    && deferredSnapshotFiles.length === 0;
   const isBootRestoring = bootState === 'restoring';
   const isInitialSync = scanState === 'scanning' && !hasDriveData;
   const cleanupBlocked = !hasDriveData || isBootRestoring || scanState === 'scanning' || snapshot.incompleteSearch || isCached;
@@ -730,6 +758,14 @@ export function CleanDriveApp() {
             error={scanState === 'error' ? message : undefined}
             onConnect={() => { void handleScan(); }}
           />
+        ) : isPreparingDerivedData ? (
+          <div className="derive-loading" aria-live="polite">
+            <span className="derive-loading__spinner" />
+            <div>
+              <strong>Đang chuẩn bị dữ liệu Drive…</strong>
+              <span>Ưu tiên hiển thị giao diện trước, phân loại file chạy sau.</span>
+            </div>
+          </div>
         ) : mode === 'cleanup' ? (
           <>
             <section className="dashboard-grid" aria-label="Tổng quan dung lượng">
@@ -866,7 +902,8 @@ export function CleanDriveApp() {
             </footer>
           </>
         ) : mode === 'projects' ? (
-          <>
+          <Suspense fallback={<PanelLoading label="Đang mở dữ liệu dự án…" />}>
+            <>
             <CoreIntegrationPanel
               state={coreState}
               email={coreSession?.user.email}
@@ -895,8 +932,10 @@ export function CleanDriveApp() {
               onSave={handleSaveProject}
               onOpenArchive={setArchiveProjectId}
             />
-          </>
+            </>
+          </Suspense>
         ) : mode === 'access' ? (
+          <Suspense fallback={<PanelLoading label="Đang mở quyền truy cập…" />}>
           <AccessPanel
             projects={projectStorage.projects}
             files={effectiveFiles}
@@ -910,12 +949,16 @@ export function CleanDriveApp() {
             onAudit={handleAuditAccess}
             onRevoke={handleRevokePermission}
           />
+          </Suspense>
         ) : (
-          <ActivityPanel entries={activityLog} />
+          <Suspense fallback={<PanelLoading label="Đang mở nhật ký…" />}>
+            <ActivityPanel entries={activityLog} />
+          </Suspense>
         )}
       </main>
 
       {showSettings ? (
+        <Suspense fallback={null}>
         <SettingsDialog
           email={snapshot.email}
           lastSyncedAt={snapshot.lastSyncedAt}
@@ -928,6 +971,7 @@ export function CleanDriveApp() {
           onResetDuplicateKeepers={handleResetDuplicateKeepers}
           onClose={() => setShowSettings(false)}
         />
+        </Suspense>
       ) : null}
 
       {showConfirm ? (
