@@ -157,6 +157,10 @@ export function CleanDriveApp() {
 
   useEffect(() => {
     let cancelled = false;
+    const bootTimeout = window.setTimeout(() => {
+      if (!cancelled) setBootState('ready');
+    }, 1500);
+
     loadLastDriveIndex()
       .then((cached) => {
         if (cancelled) return;
@@ -166,13 +170,16 @@ export function CleanDriveApp() {
           setSyncSummary(cached.lastSyncedAt ? `Dữ liệu từ ${new Date(cached.lastSyncedAt).toLocaleString('vi-VN')}` : 'Dữ liệu từ lần đồng bộ trước');
           setMessage('Đã khôi phục dữ liệu từ lần đồng bộ trước. Kết nối lại Drive để xác minh thay đổi mới trước khi dọn.');
         }
-        setBootState('ready');
       })
-      .catch(() => {
+      .catch(() => undefined)
+      .finally(() => {
+        window.clearTimeout(bootTimeout);
         if (!cancelled) setBootState('ready');
       });
+
     return () => {
       cancelled = true;
+      window.clearTimeout(bootTimeout);
     };
   }, []);
 
