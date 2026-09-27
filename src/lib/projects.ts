@@ -40,20 +40,36 @@ export function projectMetadataFromFolder(file: DriveFile) {
   };
 }
 
-function topKnownFolder(file: DriveFile, byId: Map<string, DriveFile>): DriveFile | undefined {
-  let current: DriveFile | undefined = file.mimeType === FOLDER_MIME ? file : undefined;
-  let parentId = file.parents?.[0];
-  const visited = new Set<string>([file.id]);
+function topKnownFolder(
+  file: DriveFile,
+  byId: Map<string, DriveFile>,
+  memo: Map<string, DriveFile | undefined>,
+  visiting = new Set<string>(),
+): DriveFile | undefined {
+  if (memo.has(file.id)) return memo.get(file.id);
+  if (visiting.has(file.id)) return undefined;
+  visiting.add(file.id);
 
-  while (parentId && byId.has(parentId) && !visited.has(parentId)) {
-    visited.add(parentId);
-    const parent = byId.get(parentId);
-    if (!parent) break;
-    if (parent.mimeType === FOLDER_MIME) current = parent;
-    parentId = parent.parents?.[0];
+  const parentId = file.parents?.[0];
+  if (!parentId || !byId.has(parentId)) {
+    const top = file.mimeType === FOLDER_MIME ? file : undefined;
+    memo.set(file.id, top);
+    visiting.delete(file.id);
+    return top;
   }
 
-  return current;
+  const parent = byId.get(parentId);
+  if (!parent) {
+    memo.set(file.id, undefined);
+    visiting.delete(file.id);
+    return undefined;
+  }
+
+  const parentTop = topKnownFolder(parent, byId, memo, visiting);
+  const top = parentTop ?? (parent.mimeType === FOLDER_MIME ? parent : undefined);
+  memo.set(file.id, top);
+  visiting.delete(file.id);
+  return top;
 }
 
 export function buildProjectStorage(files: DriveFile[]): {
@@ -63,11 +79,12 @@ export function buildProjectStorage(files: DriveFile[]): {
 } {
   const byId = new Map(files.map((file) => [file.id, file]));
   const aggregates = new Map<string, { bytes: bigint; fileCount: number; folderCount: number }>();
+  const topFolderMemo = new Map<string, DriveFile | undefined>();
   let unclassifiedBytes = 0n;
   let unclassifiedCount = 0;
 
   for (const file of files) {
-    const top = topKnownFolder(file, byId);
+    const top = topKnownFolder(file, byId, topFolderMemo);
     if (!top) {
       if (file.mimeType !== FOLDER_MIME) {
         unclassifiedBytes += bytesOf(file);
