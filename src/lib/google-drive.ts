@@ -1,5 +1,5 @@
 import type { DriveFile, DrivePermission, DriveSnapshot, StorageQuota } from '../types';
-import { applyDriveChanges } from './drive-changes';
+import { applyDriveChangesToMap } from './drive-changes';
 
 const READ_SCOPE = 'https://www.googleapis.com/auth/drive.metadata.readonly';
 const WRITE_SCOPE = 'https://www.googleapis.com/auth/drive';
@@ -181,6 +181,7 @@ async function fullScan(
     incompleteSearch ||= Boolean(page.incompleteSearch);
     pageToken = page.nextPageToken;
     onProgress(files.length);
+    if (pageToken) await new Promise((resolve) => window.setTimeout(resolve, 0));
   } while (pageToken);
 
   return {
@@ -227,14 +228,12 @@ async function incrementalSync(
       changes?: { fileId?: string; removed?: boolean; file?: DriveFile }[];
     }>(`/changes?${params.toString()}`, token);
 
-    const reduced = applyDriveChanges([...filesById.values()], page.changes ?? []);
-    filesById.clear();
-    for (const file of reduced.files) filesById.set(file.id, file);
-    applied += reduced.applied;
+    applied += applyDriveChangesToMap(filesById, page.changes ?? []);
 
     onProgress(applied);
     if (page.newStartPageToken) newStartPageToken = page.newStartPageToken;
     pageToken = page.nextPageToken ?? '';
+    if (pageToken) await new Promise((resolve) => window.setTimeout(resolve, 0));
   } while (pageToken);
 
   return {
