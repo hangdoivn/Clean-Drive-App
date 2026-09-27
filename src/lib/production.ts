@@ -165,12 +165,11 @@ export function isArchiveReviewCandidate(
   return false;
 }
 
-export function buildArchiveSummary(
-  files: ClassifiedFile[],
+function summarizeArchiveProjectFiles(
+  projectFiles: ClassifiedFile[],
   folderId: string,
   retentionPolicyId?: RetentionPolicyId,
 ): ArchiveProjectSummary {
-  const projectFiles = files.filter((file) => file.project?.folderId === folderId && file.kind !== 'folder');
   const policy = getRetentionPolicy(retentionPolicyId ?? projectFiles[0]?.project?.retentionPolicyId);
   const roleMap = new Map<ProductionRole, { bytes: bigint; count: number }>();
 
@@ -205,4 +204,43 @@ export function buildArchiveSummary(
     projectedBytes: totalBytes > safeRecoverableBytes ? totalBytes - safeRecoverableBytes : 0n,
     roles,
   };
+}
+
+
+export function buildArchiveSummary(
+  files: ClassifiedFile[],
+  folderId: string,
+  retentionPolicyId?: RetentionPolicyId,
+): ArchiveProjectSummary {
+  const projectFiles = files.filter((file) => file.project?.folderId === folderId && file.kind !== 'folder');
+  return summarizeArchiveProjectFiles(projectFiles, folderId, retentionPolicyId);
+}
+
+export function buildArchiveSummaries(
+  files: ClassifiedFile[],
+  projects: { folderId: string; retentionPolicyId?: RetentionPolicyId }[],
+): Map<string, ArchiveProjectSummary> {
+  const projectIds = new Set(projects.map((project) => project.folderId));
+  const grouped = new Map<string, ClassifiedFile[]>();
+
+  for (const file of files) {
+    const folderId = file.project?.folderId;
+    if (!folderId || file.kind === 'folder' || !projectIds.has(folderId)) continue;
+    const bucket = grouped.get(folderId) ?? [];
+    bucket.push(file);
+    grouped.set(folderId, bucket);
+  }
+
+  const summaries = new Map<string, ArchiveProjectSummary>();
+  for (const project of projects) {
+    summaries.set(
+      project.folderId,
+      summarizeArchiveProjectFiles(
+        grouped.get(project.folderId) ?? [],
+        project.folderId,
+        project.retentionPolicyId,
+      ),
+    );
+  }
+  return summaries;
 }
