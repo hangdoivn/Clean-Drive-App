@@ -6,7 +6,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatBytes, formatDate } from '../lib/format';
 import type { CategoryId, ClassifiedFile, CleanupRules, FileKind } from '../types';
 import { FileIcon } from './FileIcon';
@@ -90,12 +90,18 @@ export function FileTable({
   onChooseDuplicateKeeper,
 }: FileTableProps) {
   const [query, setQuery] = useState('');
+  const [renderLimit, setRenderLimit] = useState(120);
   const visibleFiles = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('vi');
     if (!normalized) return files;
     return files.filter((file) => file.name.toLocaleLowerCase('vi').includes(normalized));
   }, [files, query]);
 
+  useEffect(() => {
+    setRenderLimit(120);
+  }, [query, activeCategory, files]);
+
+  const renderedFiles = visibleFiles.slice(0, renderLimit);
   const selectableFiles = visibleFiles.filter((file) => !disabledReason(file, cleanupBlocked));
   const allSelected = selectableFiles.length > 0 && selectableFiles.every((file) => selectedIds.has(file.id));
 
@@ -122,6 +128,8 @@ export function FileTable({
         return bSavings > aSavings ? 1 : bSavings < aSavings ? -1 : 0;
       });
   }, [activeCategory, visibleFiles]);
+
+  const renderedDuplicateGroups = duplicateGroups.slice(0, Math.max(20, Math.floor(renderLimit / 4)));
 
   return (
     <section className="files-card" aria-labelledby="files-title">
@@ -174,7 +182,7 @@ export function FileTable({
               <strong>Không tìm thấy nhóm trùng phù hợp</strong>
               <span>Exact duplicate chỉ được xác định khi Google Drive trả cùng checksum và kích thước.</span>
             </div>
-          ) : duplicateGroups.map((group) => {
+          ) : renderedDuplicateGroups.map((group) => {
             const removable = group.files.filter((file) => !disabledReason(file, cleanupBlocked));
             const cleanupable = group.files.filter((file) =>
               file.duplicateRole === 'remove' && !file.protectedReason
@@ -252,6 +260,11 @@ export function FileTable({
               </article>
             );
           })}
+          {duplicateGroups.length > renderedDuplicateGroups.length ? (
+            <button className="file-load-more" type="button" onClick={() => setRenderLimit((value) => value + 120)}>
+              Hiển thị thêm · còn {(duplicateGroups.length - renderedDuplicateGroups.length).toLocaleString('vi-VN')} nhóm
+            </button>
+          ) : null}
         </div>
       ) : (
         <div className="file-table" role="table" aria-label="Danh sách file đề xuất">
@@ -277,7 +290,7 @@ export function FileTable({
               <strong>Không tìm thấy file phù hợp</strong>
               <span>Thử đổi nhóm, ngưỡng hoặc từ khóa tìm kiếm.</span>
             </div>
-          ) : visibleFiles.map((file) => {
+          ) : renderedFiles.map((file) => {
             const disabled = disabledReason(file, cleanupBlocked);
             return (
               <div className={`file-table__row${disabled ? ' is-protected' : ''}`} role="row" key={file.id}>
@@ -316,6 +329,11 @@ export function FileTable({
               </div>
             );
           })}
+          {visibleFiles.length > renderedFiles.length ? (
+            <button className="file-load-more" type="button" onClick={() => setRenderLimit((value) => value + 120)}>
+              Hiển thị thêm 120 file · còn {(visibleFiles.length - renderedFiles.length).toLocaleString('vi-VN')}
+            </button>
+          ) : null}
         </div>
       )}
     </section>
