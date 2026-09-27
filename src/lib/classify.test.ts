@@ -9,7 +9,7 @@ import {
 } from './classify';
 import type { DriveFile } from '../types';
 import { buildProjectStorage, projectAppProperties } from './projects';
-import { buildArchiveSummary, classifyProductionRole, getRetentionPolicy, isArchiveSafeCandidate } from './production';
+import { buildArchiveSummaries, buildArchiveSummary, classifyProductionRole, getRetentionPolicy, isArchiveSafeCandidate } from './production';
 
 const base: DriveFile = {
   id: 'a',
@@ -202,6 +202,37 @@ describe('classifyFiles', () => {
     expect(isArchiveSafeCandidate(files.find((file) => file.id === 'proxy-file')!)).toBe(true);
     expect(isArchiveSafeCandidate(files.find((file) => file.id === 'source-file')!)).toBe(false);
     expect(summary.safeRecoverableCount).toBe(1);
+  });
+
+  it('builds multiple archive summaries without rescanning unrelated projects', () => {
+    const projectA: DriveFile = {
+      id: 'project-a',
+      name: 'A',
+      mimeType: 'application/vnd.google-apps.folder',
+      ownedByMe: true,
+      capabilities: { canTrash: true },
+      appProperties: projectAppProperties({ name: 'A', client: 'A', status: 'delivered' }),
+    };
+    const projectB: DriveFile = {
+      ...projectA,
+      id: 'project-b',
+      name: 'B',
+      appProperties: projectAppProperties({ name: 'B', client: 'B', status: 'archive' }),
+    };
+    const files = classifyFiles([
+      projectA,
+      projectB,
+      { ...base, id: 'a-file', md5Checksum: undefined, name: 'proxy-a.mp4', parents: ['project-a'] },
+      { ...base, id: 'b-file', md5Checksum: undefined, name: 'proxy-b.mp4', parents: ['project-b'] },
+    ]);
+
+    const summaries = buildArchiveSummaries(files, [
+      { folderId: 'project-a' },
+      { folderId: 'project-b' },
+    ]);
+
+    expect(summaries.get('project-a')?.totalFiles).toBe(1);
+    expect(summaries.get('project-b')?.totalFiles).toBe(1);
   });
 
   it('applies retention policy thresholds to temporary archive candidates', () => {
