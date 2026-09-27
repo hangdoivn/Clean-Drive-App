@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyDriveChanges } from './drive-changes';
+import { applyDriveChanges, applyDriveChangesToMap } from './drive-changes';
 import type { DriveFile } from '../types';
 
 const base: DriveFile = {
@@ -12,6 +12,22 @@ const base: DriveFile = {
 };
 
 describe('applyDriveChanges', () => {
+  it('patches an existing Map in place without rebuilding unrelated entries', () => {
+    const map = new Map([
+      ['a', base],
+      ['b', { ...base, id: 'b', name: 'B.mov' }],
+    ]);
+    const originalB = map.get('b');
+
+    const applied = applyDriveChangesToMap(map, [
+      { fileId: 'a', file: { ...base, name: 'A2.mov' } },
+    ]);
+
+    expect(applied).toBe(1);
+    expect(map.get('a')?.name).toBe('A2.mov');
+    expect(map.get('b')).toBe(originalB);
+  });
+
   it('updates one file without dropping unrelated metadata', () => {
     const result = applyDriveChanges(
       [base, { ...base, id: 'b', name: 'B.mov' }],
