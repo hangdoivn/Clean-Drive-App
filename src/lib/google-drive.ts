@@ -134,6 +134,10 @@ export type DriveSyncResult = {
   snapshot: DriveSnapshot;
   mode: 'full' | 'incremental';
   changesApplied: number;
+  indexPatch?: {
+    upsertFiles: DriveFile[];
+    removedIds: string[];
+  };
 };
 
 async function getAbout(token: string): Promise<DriveAbout> {
@@ -209,6 +213,7 @@ async function incrementalSync(
   let pageToken = cached.changePageToken!;
   let newStartPageToken = pageToken;
   let applied = 0;
+  const indexPatch = new Map<string, DriveFile | null>();
 
   do {
     const params = new URLSearchParams({
@@ -228,6 +233,13 @@ async function incrementalSync(
       changes?: { fileId?: string; removed?: boolean; file?: DriveFile }[];
     }>(`/changes?${params.toString()}`, token);
 
+    for (const change of page.changes ?? []) {
+      const id = change.fileId || change.file?.id;
+      if (!id) continue;
+      if (change.removed || change.file?.trashed) indexPatch.set(id, null);
+      else if (change.file) indexPatch.set(id, change.file);
+    }
+
     applied += applyDriveChangesToMap(filesById, page.changes ?? []);
 
     onProgress(applied);
@@ -239,6 +251,12 @@ async function incrementalSync(
   return {
     mode: 'incremental',
     changesApplied: applied,
+    indexPatch: {
+      upsertFiles: [...indexPatch.values()].filter((file): file is DriveFile => Boolean(file)),
+      removedIds: [...indexPatch.entries()]
+        .filter(([, file]) => file === null)
+        .map(([id]) => id),
+    },
     snapshot: {
       files: [...filesById.values()],
       quota: about.storageQuota ?? {},
