@@ -22,12 +22,12 @@ import { CategoryNav } from './components/CategoryNav';
 import { CleanupPanel } from './components/CleanupPanel';
 import { DriveSyncState } from './components/DriveSyncState';
 import { DriveConnectState } from './components/DriveConnectState';
+import { DriveFastBoot } from './components/DriveFastBoot';
 import { StorageHealthPanel } from './components/StorageHealthPanel';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
 import { StatCard } from './components/StatCard';
 import {
-  classifyFiles,
   DEFAULT_CLEANUP_RULES,
   filterByCategory,
   isCleanupCandidate,
@@ -37,8 +37,10 @@ import {
 import { buildProjectStorage, projectAppProperties } from './lib/projects';
 import { applyCoreProjectOverlay, loadCoreContext } from './lib/hangdoi-core';
 import { appendActivityLog, loadActivityLog } from './lib/activity-log';
-import { buildArchiveSummary, getRetentionPolicy, isArchiveSafeCandidate } from './lib/production';
+import { buildArchiveSummaries, getRetentionPolicy, isArchiveSafeCandidate } from './lib/production';
 import { clearDriveIndex, loadLastDriveIndex, saveDriveIndex } from './lib/drive-index';
+import { classifyFilesAsync } from './lib/classify-worker';
+import { clearFastDriveSummary, loadFastDriveSummary, saveFastDriveSummary } from './lib/fast-summary';
 import { formatBytes } from './lib/format';
 import {
   listFilePermissions,
@@ -55,6 +57,7 @@ import type {
   CoreProject,
   CoreSession,
   CleanupRules,
+  ClassifiedFile,
   DriveFile,
   DrivePermission,
   DriveSnapshot,
@@ -170,6 +173,9 @@ export function CleanDriveApp() {
   const [coreError, setCoreError] = useState<string>();
   const [activityLog, setActivityLog] = useState<ActivityLogEntry[]>(loadActivityLog);
   const [showSettings, setShowSettings] = useState(false);
+  const [classifiedFiles, setClassifiedFiles] = useState<ClassifiedFile[]>([]);
+  const [classificationPending, setClassificationPending] = useState(false);
+  const [fastSummary, setFastSummary] = useState(loadFastDriveSummary);
 
 
   useEffect(() => {
@@ -233,10 +239,28 @@ export function CleanDriveApp() {
     () => applyCoreProjectOverlay(deferredSnapshotFiles, coreProjects),
     [deferredSnapshotFiles, coreProjects],
   );
-  const classifiedFiles = useMemo(
-    () => classifyFiles(effectiveFiles, rules, duplicateKeeperOverrides),
-    [effectiveFiles, rules, duplicateKeeperOverrides],
-  );
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!effectiveFiles.length) {
+      setClassifiedFiles([]);
+      setClassificationPending(false);
+      return () => { cancelled = true; };
+    }
+
+    setClassificationPending(true);
+    classifyFilesAsync(effectiveFiles, rules, duplicateKeeperOverrides)
+      .then((next) => {
+        if (!cancelled) setClassifiedFiles(next);
+      })
+      .finally(() => {
+        if (!cancelled) setClassificationPending(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [effectiveFiles, rules, duplicateKeeperOverrides]);
   const visibleFiles = useMemo(() => {
     const base = filterByCategory(classifiedFiles, activeCategory);
     const scoped = projectFilterId ? base.filter((file) => file.project?.folderId === projectFilterId) : base;
@@ -248,8 +272,9 @@ export function CleanDriveApp() {
 
   const hasDriveData = Boolean(snapshot.email);
   const isPreparingDerivedData = hasDriveData
-    && deferredSnapshotFiles !== snapshot.files
-    && deferredSnapshotFiles.length === 0;
+    && snapshot.files.length > 0
+    && classifiedFiles.length === 0
+    && classificationPending;
   const isBootRestoring = bootState === 'restoring';
   const isInitialSync = scanState === 'scanning' && !hasDriveData;
   const cleanupBlocked = !hasDriveData || isBootRestoring || scanState === 'scanning' || snapshot.incompleteSearch || isCached;
@@ -272,14 +297,12 @@ export function CleanDriveApp() {
   const filteredProject = projectFilterId
     ? projectStorage.projects.find((entry) => entry.folder.id === projectFilterId)
     : undefined;
-  const archiveByProject = useMemo(() => {
-    const map = new Map<string, ReturnType<typeof buildArchiveSummary>>();
-    for (const entry of projectStorage.projects) {
-      if (!entry.tagged || entry.status === 'active') continue;
-      map.set(entry.folder.id, buildArchiveSummary(classifiedFiles, entry.folder.id, entry.retentionPolicyId));
-    }
-    return map;
-  }, [projectStorage.projects, classifiedFiles]);
+  const archiveByProject = useMemo(() => buildArchiveSummaries(
+    classifiedFiles,
+    projectStorage.projects
+      .filter((entry) => entry.tagged && entry.status !== 'active')
+      .map((entry) => ({ folderId: entry.folder.id, retentionPolicyId: entry.retentionPolicyId })),
+  ), [projectStorage.projects, classifiedFiles]);
   const archiveProject = archiveProjectId
     ? projectStorage.projects.find((entry) => entry.folder.id === archiveProjectId)
     : undefined;
@@ -298,6 +321,43 @@ export function CleanDriveApp() {
   const percentOfLimit = (bytes: bigint) => limit && limit > 0n
     ? Math.max(0, Math.min(100, Number((bytes * 100n) / limit)))
     : 0;
+
+  useEffect(() => {
+    if (!snapshot.email || classificationPending || classifiedFiles.length === 0) return;
+
+    const summary = {
+      email: snapshot.email,
+      displayName: snapshot.displayName,
+      lastSyncedAt: snapshot.lastSyncedAt,
+      quota: snapshot.quota,
+      fileCount: snapshot.files.length,
+      recoverableBytes: potentialSavings.toString(),
+      recoverableCount: suggestionFiles.length,
+      activeProjectBytes: activeProjectBytes.toString(),
+      activeProjectCount: projectStorage.projects.filter((entry) => entry.tagged && entry.status === 'active').length,
+      assetFootprint: mediaFootprint.map((item) => ({
+        kind: item.kind,
+        bytes: item.bytes.toString(),
+        count: item.count,
+      })),
+    };
+
+    saveFastDriveSummary(summary);
+    setFastSummary(summary);
+  }, [
+    snapshot.email,
+    snapshot.displayName,
+    snapshot.lastSyncedAt,
+    snapshot.quota,
+    snapshot.files.length,
+    classificationPending,
+    classifiedFiles.length,
+    potentialSavings,
+    suggestionFiles.length,
+    activeProjectBytes,
+    projectStorage.projects,
+    mediaFootprint,
+  ]);
 
   const recordActivity = (entry: Omit<ActivityLogEntry, 'id' | 'createdAt'>) => {
     setActivityLog(appendActivityLog(entry));
@@ -382,6 +442,8 @@ export function CleanDriveApp() {
   const handleClearLocalCache = async () => {
     try {
       await clearDriveIndex();
+      clearFastDriveSummary();
+      setFastSummary(undefined);
       setSyncSummary('Metadata cache trên thiết bị đã được xóa');
       setMessage('Đã xóa metadata cache trên thiết bị này. Phiên Drive hiện tại vẫn giữ nguyên cho đến khi reload.');
     } catch (error) {
@@ -750,7 +812,9 @@ export function CleanDriveApp() {
           </div>
         ) : null}
 
-        {isBootRestoring || isInitialSync ? (
+        {isBootRestoring && fastSummary ? (
+          <DriveFastBoot summary={fastSummary} />
+        ) : isBootRestoring || isInitialSync ? (
           <DriveSyncState mode={isBootRestoring ? 'restoring' : 'scanning'} count={scanCount} />
         ) : !hasDriveData ? (
           <DriveConnectState
