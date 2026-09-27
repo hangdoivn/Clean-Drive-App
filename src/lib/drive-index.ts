@@ -10,6 +10,20 @@ type StoredSnapshot = DriveSnapshot & { email: string };
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('Metadata cache phản hồi quá chậm.'));
+    }, 1200);
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      fn();
+    };
+
     const request = window.indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -17,8 +31,9 @@ function openDb(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_NAME, { keyPath: 'email' });
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error ?? new Error('Không mở được metadata cache.'));
+    request.onsuccess = () => finish(() => resolve(request.result));
+    request.onerror = () => finish(() => reject(request.error ?? new Error('Không mở được metadata cache.')));
+    request.onblocked = () => finish(() => reject(new Error('Metadata cache đang bị tab khác khóa.')));
   });
 }
 
