@@ -38,7 +38,7 @@ import { buildProjectStorage, projectAppProperties } from './lib/projects';
 import { applyCoreProjectOverlay, loadCoreContext } from './lib/hangdoi-core';
 import { appendActivityLog, loadActivityLog } from './lib/activity-log';
 import { buildArchiveSummaries, getRetentionPolicy, isArchiveSafeCandidate } from './lib/production';
-import { clearDriveIndex, loadLastDriveIndex, saveDriveIndex } from './lib/drive-index';
+import { clearDriveIndex, loadLastDriveIndex, patchDriveIndex, saveDriveIndex } from './lib/drive-index';
 import { classifyFilesAsync } from './lib/classify-worker';
 import { clearFastDriveSummary, loadFastDriveSummary, saveFastDriveSummary } from './lib/fast-summary';
 import { formatBytes } from './lib/format';
@@ -395,7 +395,15 @@ export function CleanDriveApp() {
           : `${result.snapshot.files.length.toLocaleString('vi-VN')} file được index lại.`,
         count: result.mode === 'incremental' ? result.changesApplied : result.snapshot.files.length,
       });
-      saveDriveIndex(result.snapshot).catch(() => undefined);
+      if (result.mode === 'incremental' && result.indexPatch) {
+        patchDriveIndex(
+          result.snapshot,
+          result.indexPatch.upsertFiles,
+          result.indexPatch.removedIds,
+        ).catch(() => undefined);
+      } else {
+        saveDriveIndex(result.snapshot).catch(() => undefined);
+      }
 
       if (result.snapshot.incompleteSearch) {
         setMessage('Google báo kết quả quét chưa đầy đủ. Clean đã khóa thao tác dọn; hãy quét lại trước khi thay đổi file.');
@@ -521,10 +529,12 @@ export function CleanDriveApp() {
       const result = await moveFilesToTrash(safeSelection, setCleanProgress);
       const succeededIds = new Set(result.succeeded);
       const succeededFiles = safeSelection.filter((file) => succeededIds.has(file.id));
-      setSnapshot((current) => ({
-        ...current,
-        files: current.files.filter((file) => !succeededIds.has(file.id)),
-      }));
+      const nextSnapshot = {
+        ...snapshot,
+        files: snapshot.files.filter((file) => !succeededIds.has(file.id)),
+      };
+      setSnapshot(nextSnapshot);
+      patchDriveIndex(nextSnapshot, [], result.succeeded).catch(() => undefined);
       setLastTrashBatch(succeededFiles);
       setCleanResult({ succeeded: result.succeeded.length, failed: result.failed.length });
       if (result.succeeded.length) {
@@ -557,10 +567,13 @@ export function CleanDriveApp() {
       const result = await restoreFilesFromTrash(lastTrashBatch, () => undefined);
       const restoredIds = new Set(result.succeeded);
       const restoredFiles = lastTrashBatch.filter((file) => restoredIds.has(file.id));
-      setSnapshot((current) => ({
-        ...current,
-        files: [...current.files, ...restoredFiles.filter((file) => !current.files.some((item) => item.id === file.id))],
-      }));
+      const restoredUnique = restoredFiles.filter((file) => !snapshot.files.some((item) => item.id === file.id));
+      const nextSnapshot = {
+        ...snapshot,
+        files: [...snapshot.files, ...restoredUnique],
+      };
+      setSnapshot(nextSnapshot);
+      patchDriveIndex(nextSnapshot, restoredUnique, []).catch(() => undefined);
       setLastTrashBatch(lastTrashBatch.filter((file) => !restoredIds.has(file.id)));
       setCleanResult(undefined);
       if (result.succeeded.length) {
@@ -687,14 +700,16 @@ export function CleanDriveApp() {
     setMessage(undefined);
     try {
       await updateProjectFolderMetadata(folderId, appProperties);
-      setSnapshot((current) => ({
-        ...current,
-        files: current.files.map((file) =>
-          file.id === folderId
-            ? { ...file, appProperties: { ...(file.appProperties ?? {}), ...appProperties } }
-            : file
-        ),
-      }));
+      const updatedFolder = snapshot.files.find((file) => file.id === folderId);
+      const nextFolder = updatedFolder
+        ? { ...updatedFolder, appProperties: { ...(updatedFolder.appProperties ?? {}), ...appProperties } }
+        : undefined;
+      const nextSnapshot = {
+        ...snapshot,
+        files: snapshot.files.map((file) => file.id === folderId && nextFolder ? nextFolder : file),
+      };
+      setSnapshot(nextSnapshot);
+      if (nextFolder) patchDriveIndex(nextSnapshot, [nextFolder], []).catch(() => undefined);
       recordActivity({
         type: 'project',
         title: 'Đã cập nhật metadata project',
