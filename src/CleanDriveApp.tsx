@@ -161,6 +161,7 @@ export function CleanDriveApp() {
   const [rules, setRules] = useState<CleanupRules>(loadRules);
   const [duplicateKeeperOverrides, setDuplicateKeeperOverrides] = useState<Record<string, string>>(loadDuplicateKeeperOverrides);
   const [isCached, setIsCached] = useState(false);
+  const [autoReconnectState, setAutoReconnectState] = useState<'idle' | 'running' | 'connected' | 'failed'>('idle');
   const [bootState, setBootState] = useState<'restoring' | 'ready'>('restoring');
   const [syncSummary, setSyncSummary] = useState<string>();
   const [activeCategory, setActiveCategory] = useState<CategoryId>('overview');
@@ -202,7 +203,7 @@ export function CleanDriveApp() {
           setSnapshot(cached);
           setIsCached(true);
           setSyncSummary(cached.lastSyncedAt ? `Dữ liệu từ ${new Date(cached.lastSyncedAt).toLocaleString('vi-VN')}` : 'Dữ liệu từ lần đồng bộ trước');
-          setMessage('Đã khôi phục dữ liệu từ lần đồng bộ trước. Kết nối lại Drive để xác minh thay đổi mới trước khi dọn.');
+          setMessage(undefined);
         }
       })
       .catch(() => undefined)
@@ -216,6 +217,59 @@ export function CleanDriveApp() {
       window.clearTimeout(bootTimeout);
     };
   }, []);
+
+  useEffect(() => {
+    if (
+      bootState !== 'ready'
+      || !isCached
+      || !snapshot.email
+      || autoReconnectState !== 'idle'
+      || scanState !== 'idle'
+    ) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      setAutoReconnectState('running');
+      setSyncSummary('Đang tự xác minh phiên Google…');
+      setMessage(undefined);
+
+      syncGoogleDrive(snapshot, () => undefined, 'silent')
+        .then((result) => {
+          if (cancelled) return;
+          setSnapshot(result.snapshot);
+          setIsCached(false);
+          setAutoReconnectState('connected');
+          setSyncSummary(
+            result.mode === 'incremental'
+              ? `Đã tự kết nối lại · ${result.changesApplied.toLocaleString('vi-VN')} thay đổi`
+              : `Đã tự kết nối lại · ${result.snapshot.files.length.toLocaleString('vi-VN')} file`
+          );
+          setMessage(undefined);
+
+          if (result.mode === 'incremental' && result.indexPatch) {
+            patchDriveIndex(
+              result.snapshot,
+              result.indexPatch.upsertFiles,
+              result.indexPatch.removedIds,
+            ).catch(() => undefined);
+          } else {
+            saveDriveIndex(result.snapshot).catch(() => undefined);
+          }
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setAutoReconnectState('failed');
+          setSyncSummary('Phiên Google cần xác nhận lại');
+          setMessage('Phiên Google hiện tại không thể tự khôi phục. Bấm Kết nối lại Drive để xác nhận tài khoản.');
+        });
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [bootState, isCached, snapshot, autoReconnectState, scanState]);
 
   useEffect(() => {
     if (bootState !== 'ready' || !snapshot.email) return;
@@ -396,6 +450,7 @@ export function CleanDriveApp() {
   };
 
   const handleScan = async () => {
+    setAutoReconnectState('idle');
     setScanState('scanning');
     setScanCount(0);
     setMessage(undefined);
@@ -407,6 +462,7 @@ export function CleanDriveApp() {
       const result = await syncGoogleDrive(hasDriveData ? snapshot : undefined, setScanCount);
       setSnapshot(result.snapshot);
       setIsCached(false);
+      setAutoReconnectState('connected');
       setScanState('idle');
       setSyncSummary(
         result.mode === 'incremental'
@@ -885,7 +941,7 @@ export function CleanDriveApp() {
           <span
             className={isBootRestoring
               ? 'data-badge is-restoring'
-              : scanState === 'scanning'
+              : autoReconnectState === 'running' || scanState === 'scanning'
                 ? 'data-badge is-syncing'
                 : scanState === 'error'
                   ? 'data-badge is-error'
@@ -899,8 +955,10 @@ export function CleanDriveApp() {
             <span />
             {isBootRestoring
               ? 'Đang khôi phục'
-              : scanState === 'scanning'
-                ? 'Đang đồng bộ Drive'
+              : autoReconnectState === 'running'
+                ? 'Đang xác minh Google'
+                : scanState === 'scanning'
+                  ? 'Đang đồng bộ Drive'
                 : scanState === 'error'
                   ? 'Không thể đồng bộ'
                   : !hasDriveData
@@ -909,12 +967,14 @@ export function CleanDriveApp() {
                       ? 'Cần kết nối lại'
                       : 'Drive đã đồng bộ'}
           </span>
-          <button className="connect-button" type="button" onClick={handleScan} disabled={isBootRestoring || scanState === 'scanning'}>
-            {scanState === 'scanning' ? <RefreshCw className="spin" size={17} /> : <Cloud size={17} />}
+          <button className="connect-button" type="button" onClick={handleScan} disabled={isBootRestoring || autoReconnectState === 'running' || scanState === 'scanning'}>
+            {autoReconnectState === 'running' || scanState === 'scanning' ? <RefreshCw className="spin" size={17} /> : <Cloud size={17} />}
             {isBootRestoring
               ? 'Đang khôi phục'
-              : scanState === 'scanning'
-                ? `Đã đọc ${scanCount.toLocaleString('vi-VN')} file`
+              : autoReconnectState === 'running'
+                ? 'Đang tự kết nối lại'
+                : scanState === 'scanning'
+                  ? `Đã đọc ${scanCount.toLocaleString('vi-VN')} file`
                 : scanState === 'error'
                   ? 'Thử lại kết nối'
                   : !hasDriveData
