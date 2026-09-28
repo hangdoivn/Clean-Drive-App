@@ -1,6 +1,6 @@
 # Hang Đôi Apps
 
-> Clean Drive status: **v1.0.0-rc.3** — release candidate. Automated CI is required to pass; real-Drive smoke test is still required before tagging v1.0.0.
+> Clean Drive status: **v1.0.0-rc.4** — release candidate. Automated CI is required to pass; real-Drive smoke test is still required before tagging v1.0.0.
 
 App hub cho hệ thống nội bộ tại `app.hangdoistudio.vn`.
 
