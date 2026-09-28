@@ -8,7 +8,7 @@ import {
   totalBytes,
 } from './classify';
 import type { DriveFile } from '../types';
-import { buildProjectStorage, projectAppProperties } from './projects';
+import { buildProjectStorage, collectDescendantIds, projectAppProperties } from './projects';
 import { buildArchiveSummaries, buildArchiveSummary, classifyProductionRole, getRetentionPolicy, isArchiveSafeCandidate } from './production';
 
 const base: DriveFile = {
@@ -125,6 +125,55 @@ describe('classifyFiles', () => {
     const child: DriveFile = { ...base, id: 'child', md5Checksum: undefined, parents: ['project'] };
     const files = classifyFiles([folder, child]);
     expect(files.find((file) => file.id === 'child')?.protectedReason).toBe('Thuộc dự án đang hoạt động');
+  });
+
+
+  it('aggregates a nested tagged project as its own storage root', () => {
+    const clientRoot: DriveFile = {
+      id: 'client-root',
+      name: 'Client',
+      mimeType: 'application/vnd.google-apps.folder',
+      ownedByMe: true,
+      capabilities: { canTrash: true },
+    };
+    const project: DriveFile = {
+      id: 'nested-project',
+      name: 'Campaign 2026',
+      mimeType: 'application/vnd.google-apps.folder',
+      parents: ['client-root'],
+      ownedByMe: true,
+      capabilities: { canTrash: true },
+      appProperties: projectAppProperties({ name: 'Campaign 2026', client: 'Client', status: 'delivered' }),
+    };
+    const raw: DriveFile = {
+      ...clientRoot,
+      id: 'raw-folder',
+      name: 'RAW',
+      parents: ['nested-project'],
+    };
+    const clip: DriveFile = { ...base, id: 'clip-nested', md5Checksum: undefined, parents: ['raw-folder'] };
+
+    const storage = buildProjectStorage([clientRoot, project, raw, clip]);
+    const entry = storage.projects.find((item) => item.folder.id === 'nested-project');
+    expect(entry?.tagged).toBe(true);
+    expect(entry?.bytes).toBe(600_000_000n);
+    expect(entry?.fileCount).toBe(1);
+  });
+
+  it('collects a folder and all descendants for whole-project trash and undo', () => {
+    const root: DriveFile = {
+      id: 'root',
+      name: 'Root',
+      mimeType: 'application/vnd.google-apps.folder',
+      ownedByMe: true,
+      capabilities: { canTrash: true },
+    };
+    const child: DriveFile = { ...root, id: 'child', name: 'Child', parents: ['root'] };
+    const file: DriveFile = { ...base, id: 'file', parents: ['child'], md5Checksum: undefined };
+    const unrelated: DriveFile = { ...base, id: 'other', parents: [], md5Checksum: undefined };
+
+    expect([...collectDescendantIds([root, child, file, unrelated], 'root')].sort())
+      .toEqual(['child', 'file', 'root']);
   });
 
   it('aggregates storage by top-level project folder', () => {
