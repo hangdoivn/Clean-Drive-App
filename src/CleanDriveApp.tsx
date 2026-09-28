@@ -26,6 +26,7 @@ import { DriveFastBoot } from './components/DriveFastBoot';
 import { StorageHealthPanel } from './components/StorageHealthPanel';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { FileTable } from './components/FileTable';
+import { CleanupExplorer, type CleanupExplorerView } from './components/CleanupExplorer';
 import { StatCard } from './components/StatCard';
 import {
   DEFAULT_CLEANUP_RULES,
@@ -34,7 +35,7 @@ import {
   storageByKind,
   totalBytes,
 } from './lib/classify';
-import { buildProjectStorage, projectAppProperties } from './lib/projects';
+import { buildProjectStorage, collectDescendantIds, projectAppProperties } from './lib/projects';
 import { applyCoreProjectOverlay, loadCoreContext } from './lib/hangdoi-core';
 import { appendActivityLog, loadActivityLog } from './lib/activity-log';
 import { buildArchiveSummaries, getRetentionPolicy, isArchiveSafeCandidate } from './lib/production';
@@ -63,6 +64,7 @@ import type {
   DriveSnapshot,
   FileKind,
   ProjectMetadataInput,
+  ProjectStorageEntry,
 } from './types';
 
 const ProjectStoragePanel = lazy(() =>
@@ -82,6 +84,9 @@ const ArchiveReviewPanel = lazy(() =>
 );
 const SettingsDialog = lazy(() =>
   import('./components/SettingsDialog').then((module) => ({ default: module.SettingsDialog })),
+);
+const ProjectTrashDialog = lazy(() =>
+  import('./components/ProjectTrashDialog').then((module) => ({ default: module.ProjectTrashDialog })),
 );
 
 function PanelLoading({ label }: { label: string }) {
@@ -145,6 +150,12 @@ export function CleanDriveApp() {
   const [mode, setMode] = useState<'cleanup' | 'projects' | 'access' | 'activity'>('cleanup');
   const [isSavingProject, setIsSavingProject] = useState(false);
   const [projectFilterId, setProjectFilterId] = useState<string>();
+  const [folderFilterId, setFolderFilterId] = useState<string>();
+  const [cleanupExplorerView, setCleanupExplorerView] = useState<CleanupExplorerView>('project');
+  const [pendingProjectTrash, setPendingProjectTrash] = useState<ProjectStorageEntry>();
+  const [lastProjectTrash, setLastProjectTrash] = useState<{ project: ProjectStorageEntry; files: DriveFile[] }>();
+  const [isTrashingProject, setIsTrashingProject] = useState(false);
+  const [isRestoringProject, setIsRestoringProject] = useState(false);
   const [archiveProjectId, setArchiveProjectId] = useState<string>();
   const [archiveSafeOnly, setArchiveSafeOnly] = useState(false);
   const [rules, setRules] = useState<CleanupRules>(loadRules);
@@ -261,14 +272,22 @@ export function CleanDriveApp() {
       cancelled = true;
     };
   }, [effectiveFiles, rules, duplicateKeeperOverrides]);
+  const folderFilterIds = useMemo(
+    () => folderFilterId ? collectDescendantIds(effectiveFiles, folderFilterId) : undefined,
+    [effectiveFiles, folderFilterId],
+  );
   const visibleFiles = useMemo(() => {
     const base = filterByCategory(classifiedFiles, activeCategory);
-    const scoped = projectFilterId ? base.filter((file) => file.project?.folderId === projectFilterId) : base;
+    const scoped = projectFilterId
+      ? base.filter((file) => file.project?.folderId === projectFilterId)
+      : folderFilterIds
+        ? base.filter((file) => folderFilterIds.has(file.id))
+        : base;
     const archiveScoped = archiveSafeOnly
       ? scoped.filter((file) => isArchiveSafeCandidate(file, getRetentionPolicy(file.project?.retentionPolicyId)))
       : scoped;
     return archiveScoped.sort((a, b) => (b.bytes > a.bytes ? 1 : b.bytes < a.bytes ? -1 : 0));
-  }, [classifiedFiles, activeCategory, projectFilterId, archiveSafeOnly]);
+  }, [classifiedFiles, activeCategory, projectFilterId, folderFilterIds, archiveSafeOnly]);
 
   const hasDriveData = Boolean(snapshot.email);
   const isPreparingDerivedData = hasDriveData
@@ -296,6 +315,9 @@ export function CleanDriveApp() {
   }, [classifiedFiles]);
   const filteredProject = projectFilterId
     ? projectStorage.projects.find((entry) => entry.folder.id === projectFilterId)
+    : undefined;
+  const filteredFolder = folderFilterId
+    ? projectStorage.projects.find((entry) => entry.folder.id === folderFilterId)
     : undefined;
   const archiveByProject = useMemo(() => buildArchiveSummaries(
     classifiedFiles,
@@ -523,7 +545,7 @@ export function CleanDriveApp() {
     setCleanProgress(0);
     setCleanResult(undefined);
     setLastTrashBatch([]);
-
+    setLastProjectTrash(undefined);
 
     try {
       const result = await moveFilesToTrash(safeSelection, setCleanProgress);
@@ -596,6 +618,122 @@ export function CleanDriveApp() {
 
 
 
+
+
+
+  const openProjectFiles = (folderId: string) => {
+    setProjectFilterId(folderId);
+    setFolderFilterId(undefined);
+    setArchiveSafeOnly(false);
+    setActiveCategory('overview');
+    setSelectedIds(new Set());
+    setCleanupExplorerView('file');
+  };
+
+  const openFolderFiles = (folderId: string) => {
+    setFolderFilterId(folderId);
+    setProjectFilterId(undefined);
+    setArchiveSafeOnly(false);
+    setActiveCategory('overview');
+    setSelectedIds(new Set());
+    setCleanupExplorerView('file');
+  };
+
+  const handleRequestProjectTrash = (entry: ProjectStorageEntry) => {
+    if (
+      cleanupBlocked
+      || !entry.tagged
+      || !entry.status
+      || entry.status === 'active'
+      || entry.folder.ownedByMe === false
+      || entry.folder.capabilities?.canTrash === false
+    ) return;
+    setPendingProjectTrash(entry);
+  };
+
+  const handleConfirmedProjectTrash = async () => {
+    const project = pendingProjectTrash;
+    if (!project || cleanupBlocked || project.status === 'active') return;
+
+    const descendantIds = collectDescendantIds(snapshot.files, project.folder.id);
+    const backupFiles = snapshot.files.filter((file) => descendantIds.has(file.id));
+    const unownedCount = backupFiles.filter((file) => file.ownedByMe === false).length;
+    if (unownedCount > 0) {
+      setMessage('Project có file không thuộc sở hữu tài khoản hiện tại. Clean đã khóa thao tác nguyên project; hãy review theo file.');
+      return;
+    }
+
+    const rootFolder = snapshot.files.find((file) => file.id === project.folder.id) ?? project.folder;
+    setIsTrashingProject(true);
+    setMessage(undefined);
+    setLastTrashBatch([]);
+
+    try {
+      const result = await moveFilesToTrash([rootFolder], () => undefined);
+      if (!result.succeeded.includes(rootFolder.id)) {
+        throw new Error(result.failed[0]?.message || 'Không thể đưa folder project vào thùng rác.');
+      }
+
+      const nextSnapshot = {
+        ...snapshot,
+        files: snapshot.files.filter((file) => !descendantIds.has(file.id)),
+      };
+      setSnapshot(nextSnapshot);
+      patchDriveIndex(nextSnapshot, [], [...descendantIds]).catch(() => undefined);
+      setLastProjectTrash({ project, files: backupFiles });
+      setPendingProjectTrash(undefined);
+      setProjectFilterId(undefined);
+      setFolderFilterId(undefined);
+      setCleanupExplorerView('project');
+      recordActivity({
+        type: 'cleanup',
+        title: 'Đã đưa toàn bộ project vào thùng rác',
+        detail: project.name,
+        count: project.fileCount,
+        bytes: project.bytes.toString(),
+      });
+      setMessage('Đã đưa project “' + project.name + '” vào thùng rác. Bạn có thể khôi phục nguyên project ngay trên màn Dọn dẹp.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Không thể dọn toàn bộ project.');
+    } finally {
+      setIsTrashingProject(false);
+    }
+  };
+
+  const handleUndoProjectTrash = async () => {
+    if (!lastProjectTrash || isRestoringProject) return;
+
+    const { project, files } = lastProjectTrash;
+    const rootFolder = files.find((file) => file.id === project.folder.id) ?? project.folder;
+    setIsRestoringProject(true);
+    setMessage(undefined);
+
+    try {
+      const result = await restoreFilesFromTrash([rootFolder], () => undefined);
+      if (!result.succeeded.includes(rootFolder.id)) {
+        throw new Error(result.failed[0]?.message || 'Không thể khôi phục folder project.');
+      }
+
+      const existing = new Set(snapshot.files.map((file) => file.id));
+      const restoredFiles = files.filter((file) => !existing.has(file.id));
+      const nextSnapshot = { ...snapshot, files: [...snapshot.files, ...restoredFiles] };
+      setSnapshot(nextSnapshot);
+      patchDriveIndex(nextSnapshot, restoredFiles, []).catch(() => undefined);
+      setLastProjectTrash(undefined);
+      recordActivity({
+        type: 'restore',
+        title: 'Đã khôi phục toàn bộ project',
+        detail: project.name,
+        count: project.fileCount,
+        bytes: project.bytes.toString(),
+      });
+      setMessage('Đã khôi phục project “' + project.name + '” khỏi thùng rác.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Không thể khôi phục project.');
+    } finally {
+      setIsRestoringProject(false);
+    }
+  };
 
 
   const handleRefreshCore = async () => {
@@ -673,6 +811,8 @@ export function CleanDriveApp() {
 
   const handleReviewProject = (folderId: string) => {
     setProjectFilterId(folderId);
+    setFolderFilterId(undefined);
+    setCleanupExplorerView('file');
     setArchiveSafeOnly(false);
     setActiveCategory('overview');
     setSelectedIds(new Set());
@@ -682,6 +822,8 @@ export function CleanDriveApp() {
 
   const handleReviewArchiveSafe = (folderId: string) => {
     setProjectFilterId(folderId);
+    setFolderFilterId(undefined);
+    setCleanupExplorerView('file');
     setArchiveSafeOnly(true);
     setActiveCategory('overview');
     setSelectedIds(new Set());
@@ -902,7 +1044,7 @@ export function CleanDriveApp() {
               onProjects={() => setMode('projects')}
               onAccess={() => setMode('access')}
               onArchive={(folderId) => { setArchiveProjectId(folderId); setMode('projects'); }}
-              onCleanup={() => { setMode('cleanup'); setActiveCategory('overview'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              onCleanup={() => { setMode('cleanup'); setCleanupExplorerView('project'); setActiveCategory('overview'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
               onSync={() => { void handleScan(); }}
             />
 
@@ -922,59 +1064,102 @@ export function CleanDriveApp() {
               </div>
             </section>
 
-            {filteredProject ? (
-              <div className="project-filter-banner">
-                <div>
-                  <FolderKanban size={17} />
-                  <span>{archiveSafeOnly ? 'Archive review · ' : 'Đang xem đề xuất của '}<strong>{filteredProject.name}</strong>{filteredProject.client ? ` · ${filteredProject.client}` : ''}</span>
-                </div>
-                <button type="button" onClick={() => { setProjectFilterId(undefined); setArchiveSafeOnly(false); setSelectedIds(new Set()); }}>Xem tất cả</button>
-              </div>
-            ) : null}
+            <CleanupExplorer
+              view={cleanupExplorerView}
+              entries={projectStorage.projects}
+              files={classifiedFiles}
+              archiveByProject={archiveByProject}
+              cleanupBlocked={cleanupBlocked}
+              lastTrash={lastProjectTrash ? {
+                name: lastProjectTrash.project.name,
+                bytes: lastProjectTrash.project.bytes,
+                count: lastProjectTrash.project.fileCount,
+              } : undefined}
+              isRestoring={isRestoringProject}
+              onViewChange={(nextView) => {
+                setCleanupExplorerView(nextView);
+                if (nextView !== 'file') {
+                  setProjectFilterId(undefined);
+                  setFolderFilterId(undefined);
+                  setArchiveSafeOnly(false);
+                  setSelectedIds(new Set());
+                }
+              }}
+              onOpenProjectFiles={openProjectFiles}
+              onOpenFolderFiles={openFolderFiles}
+              onOpenArchive={(folderId) => { setArchiveProjectId(folderId); setMode('projects'); }}
+              onTrashProject={handleRequestProjectTrash}
+              onUndoProjectTrash={handleUndoProjectTrash}
+              onManageProjects={() => setMode('projects')}
+            />
 
-            <section className="work-grid">
-              <aside className="left-rail">
-                <div className="rail-label">Nhóm đề xuất</div>
-                <CategoryNav active={activeCategory} files={classifiedFiles} onChange={setActiveCategory} />
-                <div className="trash-callout">
-                  <span><Trash2 size={18} /></span>
-                  <div>
-                    <strong>{formatBytes(snapshot.quota.usageInDriveTrash)}</strong>
-                    <p>đang ở thùng rác</p>
+            {cleanupExplorerView === 'file' ? (
+              <>
+                {filteredProject || filteredFolder ? (
+                  <div className="project-filter-banner">
+                    <div>
+                      <FolderKanban size={17} />
+                      <span>
+                        {archiveSafeOnly ? 'Archive review · ' : filteredProject ? 'Dự án · ' : 'Folder · '}
+                        <strong>{(filteredProject || filteredFolder)?.name}</strong>
+                        {(filteredProject || filteredFolder)?.client ? ' · ' + (filteredProject || filteredFolder)?.client : ''}
+                      </span>
+                    </div>
+                    <button type="button" onClick={() => {
+                      setProjectFilterId(undefined);
+                      setFolderFilterId(undefined);
+                      setArchiveSafeOnly(false);
+                      setSelectedIds(new Set());
+                      setCleanupExplorerView('project');
+                    }}>Quay lại dự án</button>
                   </div>
-                </div>
-              </aside>
+                ) : null}
 
-              <FileTable
-                files={visibleFiles}
-                activeCategory={activeCategory}
-                selectedIds={selectedIds}
-                cleanupBlocked={cleanupBlocked}
-                rules={rules}
-                onRulesChange={updateRules}
-                onToggle={handleToggle}
-                onToggleAll={handleToggleAll}
-                onChooseDuplicateKeeper={handleChooseDuplicateKeeper}
-              />
+                <section className="work-grid">
+                  <aside className="left-rail">
+                    <div className="rail-label">Nhóm đề xuất</div>
+                    <CategoryNav active={activeCategory} files={classifiedFiles} onChange={setActiveCategory} />
+                    <div className="trash-callout">
+                      <span><Trash2 size={18} /></span>
+                      <div>
+                        <strong>{formatBytes(snapshot.quota.usageInDriveTrash)}</strong>
+                        <p>đang ở thùng rác</p>
+                      </div>
+                    </div>
+                  </aside>
 
-              <CleanupPanel
-                selected={selectedFiles}
-                isCleaning={isCleaning}
-                progress={cleanProgress}
-                result={cleanResult}
-                cleanupBlocked={cleanupBlocked}
-                blockedReason={scanState === 'scanning'
-                  ? 'Clean đang đồng bộ Drive. Mọi thay đổi file tạm thời bị khóa.'
-                  : isCached
-                    ? 'Dữ liệu đã được khôi phục sau reload nhưng Google Drive chưa được xác minh lại. Hãy bấm Kết nối lại Drive.'
-                    : 'Lần quét chưa hoàn chỉnh nên Clean đã khóa mọi thay đổi file.'}
-                undoFiles={lastTrashBatch}
-                isRestoring={isRestoring}
-                onClean={() => setShowConfirm(true)}
-                onClear={() => setSelectedIds(new Set())}
-                onUndo={handleUndo}
-              />
-            </section>
+                  <FileTable
+                    files={visibleFiles}
+                    activeCategory={activeCategory}
+                    selectedIds={selectedIds}
+                    cleanupBlocked={cleanupBlocked}
+                    rules={rules}
+                    onRulesChange={updateRules}
+                    onToggle={handleToggle}
+                    onToggleAll={handleToggleAll}
+                    onChooseDuplicateKeeper={handleChooseDuplicateKeeper}
+                  />
+
+                  <CleanupPanel
+                    selected={selectedFiles}
+                    isCleaning={isCleaning}
+                    progress={cleanProgress}
+                    result={cleanResult}
+                    cleanupBlocked={cleanupBlocked}
+                    blockedReason={scanState === 'scanning'
+                      ? 'Clean đang đồng bộ Drive. Mọi thay đổi file tạm thời bị khóa.'
+                      : isCached
+                        ? 'Dữ liệu đã được khôi phục sau reload nhưng Google Drive chưa được xác minh lại. Hãy bấm Kết nối lại Drive.'
+                        : 'Lần quét chưa hoàn chỉnh nên Clean đã khóa mọi thay đổi file.'}
+                    undoFiles={lastTrashBatch}
+                    isRestoring={isRestoring}
+                    onClean={() => setShowConfirm(true)}
+                    onClear={() => setSelectedIds(new Set())}
+                    onUndo={handleUndo}
+                  />
+                </section>
+              </>
+            ) : null}
 
             <footer className="footer-note">
               <HardDrive size={15} /> Dung lượng giải phóng là ước tính từ metadata Google Drive và có thể cập nhật chậm sau khi dọn.
@@ -1050,6 +1235,22 @@ export function CleanDriveApp() {
           onResetDuplicateKeepers={handleResetDuplicateKeepers}
           onClose={() => setShowSettings(false)}
         />
+        </Suspense>
+      ) : null}
+
+      {pendingProjectTrash ? (
+        <Suspense fallback={null}>
+          <ProjectTrashDialog
+            project={pendingProjectTrash}
+            descendantCount={collectDescendantIds(snapshot.files, pendingProjectTrash.folder.id).size}
+            unownedCount={snapshot.files.filter((file) =>
+              collectDescendantIds(snapshot.files, pendingProjectTrash.folder.id).has(file.id)
+              && file.ownedByMe === false
+            ).length}
+            isWorking={isTrashingProject}
+            onCancel={() => setPendingProjectTrash(undefined)}
+            onConfirm={handleConfirmedProjectTrash}
+          />
         </Suspense>
       ) : null}
 
