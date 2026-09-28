@@ -97,6 +97,7 @@ export function CleanupExplorer({
   const normalized = query.trim().toLocaleLowerCase('vi');
   const projects = entries
     .filter((entry) => entry.tagged)
+    .filter((entry) => entry.bytes > 0n || entry.fileCount > 0)
     .filter((entry) => !normalized
       || entry.name.toLocaleLowerCase('vi').includes(normalized)
       || entry.client?.toLocaleLowerCase('vi').includes(normalized))
@@ -144,7 +145,7 @@ export function CleanupExplorer({
         <div className="explorer-card">
           <div className="explorer-card__header">
             <div>
-              <p className="eyebrow">Project-first cleanup</p>
+              <p className="eyebrow">Dọn theo dự án</p>
               <h2>Dự án đang chiếm dung lượng Drive</h2>
               <span>{projects.length} project · {formatBytes(totalProjectBytes)} · {formatBytes(deliveredBytes)} thuộc project đã qua</span>
             </div>
@@ -200,7 +201,7 @@ export function CleanupExplorer({
                       <strong>{summary ? formatBytes(summary.safeRecoverableBytes) : '—'}</strong>
                       {summary?.reviewCount ? <span>{summary.reviewCount} file cần review</span> : null}
                     </div>
-                    <span className="project-clean-activity">{stats?.last ? formatDate(stats.last) : '—'}</span>
+                    <span className="project-clean-activity">{stats?.last || entry.folder.modifiedTime ? formatDate(stats?.last || entry.folder.modifiedTime) : '—'}</span>
                     <div className="project-clean-actions">
                       {summary && !active ? (
                         <button type="button" onClick={() => onOpenArchive(entry.folder.id)}><Archive size={13} /> Review</button>
@@ -228,7 +229,7 @@ export function CleanupExplorer({
         <div className="explorer-card">
           <div className="explorer-card__header">
             <div>
-              <p className="eyebrow">Folder storage</p>
+              <p className="eyebrow">Dung lượng theo folder</p>
               <h2>Folder đang chiếm dung lượng</h2>
               <span>Project folder và top-level folder, sắp xếp từ lớn đến nhỏ.</span>
             </div>
@@ -259,7 +260,7 @@ export function CleanupExplorer({
                     <button type="button" onClick={() => onOpenFolderFiles(entry.folder.id)}>Xem file <ChevronRight size={13} /></button>
                     {entry.tagged && !active ? (
                       <button type="button" className="is-danger" disabled={cleanupBlocked} onClick={() => onTrashProject(entry)}>
-                        <Trash2 size={13} /> Trash project
+                        <Trash2 size={13} /> Dọn project
                       </button>
                     ) : !entry.tagged ? (
                       <button type="button" onClick={onManageProjects}><Settings2 size={13} /> Gắn project</button>
