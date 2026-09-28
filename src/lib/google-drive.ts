@@ -60,15 +60,21 @@ async function waitForGoogleIdentity(): Promise<NonNullable<Window['google']>> {
   return window.google;
 }
 
-export async function requestAccessToken(scope: string, loginHint?: string): Promise<string> {
+export async function requestAccessToken(
+  scope: string,
+  loginHint?: string,
+  mode: 'interactive' | 'silent' = 'interactive',
+): Promise<string> {
   const cached = tokenCache.get(scope);
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
 
   const google = await waitForGoogleIdentity();
   return new Promise((resolve, reject) => {
     const timeoutId = window.setTimeout(() => {
-      reject(new Error('Phiên cấp quyền đã hết thời gian. Hãy thử kết nối lại.'));
-    }, 60_000);
+      reject(new Error(mode === 'silent'
+        ? 'Không thể khôi phục phiên Google tự động.'
+        : 'Phiên cấp quyền đã hết thời gian. Hãy thử kết nối lại.'));
+    }, mode === 'silent' ? 10_000 : 60_000);
 
     const client = google.accounts.oauth2.initTokenClient({
       client_id: getClientId(),
@@ -90,7 +96,7 @@ export async function requestAccessToken(scope: string, loginHint?: string): Pro
       },
     });
 
-    client.requestAccessToken({ prompt: '' });
+    client.requestAccessToken({ prompt: mode === 'silent' ? 'none' : '' });
   });
 }
 
@@ -272,8 +278,9 @@ async function incrementalSync(
 export async function syncGoogleDrive(
   cached: DriveSnapshot | undefined,
   onProgress: (itemsFound: number) => void,
+  authMode: 'interactive' | 'silent' = 'interactive',
 ): Promise<DriveSyncResult> {
-  const token = await requestAccessToken(READ_SCOPE, cached?.email);
+  const token = await requestAccessToken(READ_SCOPE, cached?.email, authMode);
   const about = await getAbout(token);
   const email = about.user?.emailAddress;
 
