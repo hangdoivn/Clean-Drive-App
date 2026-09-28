@@ -332,6 +332,10 @@ export function CleanDriveApp() {
   const activeProjectBytes = projectStorage.projects
     .filter((entry) => entry.tagged && entry.status === 'active')
     .reduce((sum, entry) => sum + entry.bytes, 0n);
+  const finishedProjects = projectStorage.projects.filter(
+    (entry) => entry.tagged && entry.status && entry.status !== 'active',
+  );
+  const finishedProjectBytes = finishedProjects.reduce((sum, entry) => sum + entry.bytes, 0n);
 
   const limit = snapshot.quota.limit ? toBytes(snapshot.quota.limit) : undefined;
   const usage = toBytes(snapshot.quota.usage || snapshot.quota.usageInDrive);
@@ -1017,9 +1021,9 @@ export function CleanDriveApp() {
               </div>
 
               <StatCard
-                label="Có thể giải phóng an toàn"
-                value={formatBytes(potentialSavings)}
-                detail={`${suggestionFiles.length} mục có thể chọn`}
+                label="Project đã qua"
+                value={formatBytes(finishedProjectBytes)}
+                detail={`${finishedProjects.length} project đã bàn giao / lưu trữ`}
                 icon={<ScanSearch size={21} />}
                 tone="green"
               />
