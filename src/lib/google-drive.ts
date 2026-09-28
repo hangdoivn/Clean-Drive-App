@@ -324,7 +324,7 @@ async function setTrashState(
 
   for (const file of files) {
     try {
-      await withBackoff(() => driveFetch(`/files/${encodeURIComponent(file.id)}?fields=id,trashed`, token, {
+      await withBackoff(() => driveFetch(`/files/${encodeURIComponent(file.id)}?fields=id,trashed&supportsAllDrives=true`, token, {
         method: 'PATCH',
         body: JSON.stringify({ trashed }),
       }));
