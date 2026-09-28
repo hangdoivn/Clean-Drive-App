@@ -40,6 +40,31 @@ export function projectMetadataFromFolder(file: DriveFile) {
   };
 }
 
+
+function nearestProjectFolder(
+  file: DriveFile,
+  byId: Map<string, DriveFile>,
+  memo: Map<string, DriveFile | undefined>,
+  visiting = new Set<string>(),
+): DriveFile | undefined {
+  if (memo.has(file.id)) return memo.get(file.id);
+  if (visiting.has(file.id)) return undefined;
+  visiting.add(file.id);
+
+  if (isProjectFolder(file)) {
+    memo.set(file.id, file);
+    visiting.delete(file.id);
+    return file;
+  }
+
+  const parentId = file.parents?.[0];
+  const parent = parentId ? byId.get(parentId) : undefined;
+  const project = parent ? nearestProjectFolder(parent, byId, memo, visiting) : undefined;
+  memo.set(file.id, project);
+  visiting.delete(file.id);
+  return project;
+}
+
 function topKnownFolder(
   file: DriveFile,
   byId: Map<string, DriveFile>,
@@ -80,11 +105,13 @@ export function buildProjectStorage(files: DriveFile[]): {
   const byId = new Map(files.map((file) => [file.id, file]));
   const aggregates = new Map<string, { bytes: bigint; fileCount: number; folderCount: number }>();
   const topFolderMemo = new Map<string, DriveFile | undefined>();
+  const projectFolderMemo = new Map<string, DriveFile | undefined>();
   let unclassifiedBytes = 0n;
   let unclassifiedCount = 0;
 
   for (const file of files) {
-    const top = topKnownFolder(file, byId, topFolderMemo);
+    const projectRoot = nearestProjectFolder(file, byId, projectFolderMemo);
+    const top = projectRoot ?? topKnownFolder(file, byId, topFolderMemo);
     if (!top) {
       if (file.mimeType !== FOLDER_MIME) {
         unclassifiedBytes += bytesOf(file);
@@ -127,6 +154,29 @@ export function buildProjectStorage(files: DriveFile[]): {
   });
 
   return { projects: entries, unclassifiedBytes, unclassifiedCount };
+}
+
+export function collectDescendantIds(files: DriveFile[], rootId: string): Set<string> {
+  const children = new Map<string, string[]>();
+  for (const file of files) {
+    for (const parentId of file.parents ?? []) {
+      const bucket = children.get(parentId) ?? [];
+      bucket.push(file.id);
+      children.set(parentId, bucket);
+    }
+  }
+
+  const ids = new Set<string>([rootId]);
+  const queue = [rootId];
+  while (queue.length) {
+    const current = queue.shift()!;
+    for (const childId of children.get(current) ?? []) {
+      if (ids.has(childId)) continue;
+      ids.add(childId);
+      queue.push(childId);
+    }
+  }
+  return ids;
 }
 
 export function findProjectContext(file: DriveFile, byId: Map<string, DriveFile>) {
